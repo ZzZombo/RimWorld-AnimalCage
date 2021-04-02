@@ -29,6 +29,19 @@ namespace ZzZomboRW
 				}
 			}
 		}
+		public override bool BlocksPawn(Pawn p)
+		{
+			if(base.BlocksPawn(p))
+			{
+				return true;
+			}
+			var comp = this.GetComp<CompAssignableToPawn_Cage>();
+			if(!(comp is null))
+			{
+				return !this.GetAssignedPawns().Contains(p) && (!p.CurJob?.AnyTargetOutsideArea(comp.Area) ?? true);
+			}
+			return false;
+		}
 		public override void ExposeData()
 		{
 			base.ExposeData();
