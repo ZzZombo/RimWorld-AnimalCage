@@ -197,12 +197,13 @@ namespace ZzZomboRW
 			//yield return Toils_Bed.ClaimBedIfNonMedical(TargetIndex.B, TargetIndex.A);
 			base.AddFinishAction(delegate
 			{
-				if(this.Takee.ownership.OwnedBed == this.DropBed && this.pawn.Position == this.DropBed.InteractionCell)
+				var cage = this.DropBed;
+				var target = this.Takee;
+				if(target.ownership.OwnedBed == cage && this.pawn.Position == cage.InteractionCell)
 				{
-					//TODO: handle capture.					   
+					var comp = cage.GetComp<CompAssignableToPawn_Cage>();
 					if(this.job.def.makeTargetPrisoner)
 					{
-						Pawn target = (Pawn)this.job.targetA.Thing;
 						Lord lord = target.GetLord();
 						if(lord != null)
 						{
@@ -217,6 +218,21 @@ namespace ZzZomboRW
 						{
 							this.pawn.jobs.EndCurrentJob(JobCondition.Incompletable, true, true);
 						}
+					}
+					var position = new IntVec3(cage.InteractionCell.ToVector3()).ClampInsideRect(cage.OccupiedRect());
+					this.pawn.carryTracker.TryDropCarriedThing(position, ThingPlaceMode.Direct, out var thing, null);
+					if(!cage.Destroyed && (cage.OwnersForReading.Contains(target)))
+					{
+						target.jobs.Notify_TuckedIntoBed(cage);
+						target.mindState.Notify_TuckedIntoBed();
+						if(comp != null)
+						{
+							target.playerSettings.AreaRestriction = comp.Area;
+						}
+					}
+					if(target.IsPrisonerOfColony)
+					{
+						LessonAutoActivator.TeachOpportunity(ConceptDefOf.PrisonerTab, this.Takee, OpportunityType.GoodToKnow);
 					}
 				}
 			});
@@ -257,25 +273,6 @@ namespace ZzZomboRW
 			yield return toil;
 			yield return Toils_Goto.GotoThing(TargetIndex.B, PathEndMode.InteractionCell);
 			yield return Toils_Reserve.Release(TargetIndex.B);
-			yield return new Toil
-			{
-				initAction = delegate ()
-				{
-					var cage = this.DropBed;
-					var position = new IntVec3(cage.InteractionCell.ToVector3()).ClampInsideRect(cage.OccupiedRect());
-					this.pawn.carryTracker.TryDropCarriedThing(position, ThingPlaceMode.Direct, out var thing, null);
-					if(!cage.Destroyed && (cage.OwnersForReading.Contains(this.Takee)))
-					{
-						this.Takee.jobs.Notify_TuckedIntoBed(cage);
-						this.Takee.mindState.Notify_TuckedIntoBed();
-					}
-					if(this.Takee.IsPrisonerOfColony)
-					{
-						LessonAutoActivator.TeachOpportunity(ConceptDefOf.PrisonerTab, this.Takee, OpportunityType.GoodToKnow);
-					}
-				},
-				defaultCompleteMode = ToilCompleteMode.Instant
-			};
 			yield break;
 		}
 
