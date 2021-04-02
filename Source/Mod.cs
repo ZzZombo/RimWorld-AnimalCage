@@ -61,7 +61,7 @@ namespace ZzZomboRW
 
 		public override int ListPriority => 0;
 	}
-	public class CompAssignableToPawn_Cage: CompAssignableToPawn
+	public class CompAssignableToPawn_Cage: CompAssignableToPawn_Bed
 	{
 		public static readonly Dictionary<Map, List<Building>> cache = new Dictionary<Map, List<Building>>();
 
@@ -98,11 +98,21 @@ namespace ZzZomboRW
 		public override void Initialize(CompProperties props)
 		{
 			base.Initialize(props);
-			var bed = this.parent;
-			if(bed is Building_Bed cage)
+			if(this.parent is Building_Bed cage)
 			{
 				cage.ForPrisoners = true;
 			}
+		}
+		public override void PostDeSpawn(Map map)
+		{
+			base.PostDeSpawn(map);
+			this.area.valid = false;
+			this.area.Delete();
+		}
+		public override void PostSpawnSetup(bool respawningAfterLoad)
+		{
+			base.PostSpawnSetup(respawningAfterLoad);
+			var bed = this.parent;
 			var areaManager = bed.Map.areaManager;
 			if(this.Area is null)
 			{

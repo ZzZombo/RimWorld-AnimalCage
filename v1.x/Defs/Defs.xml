@@ -7,7 +7,7 @@
 		<description>A small cage to keep fitting animals in. Fits smaller animals like chickens, cats, or small dogs. Animals inside are peaceful and will be interacted with by colonists even if they are wild.</description>
 		<rotatable>true</rotatable>
 		<fillPercent>0.25</fillPercent>
-		<pathCost>40</pathCost>
+		<pathCost>9000</pathCost>
 		<passability>Standable</passability>
 		<canOverlapZones>false</canOverlapZones>
 		<techLevel>Medieval</techLevel>
