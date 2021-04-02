@@ -15,19 +15,61 @@ internal static class MOD
 
 namespace ZzZomboRW
 {
+	public class MapComponent_Cage: MapComponent
+	{
+		public List<Building> cages = new List<Building>();
+		public MapComponent_Cage(Map map) : base(map)
+		{
+		}
+		public bool HasFreeCagesFor(Pawn target) => FindCageFor(target) != null;
+		public Building FindCageFor(Pawn pawn, bool onlyIfInside = true)
+		{
+			foreach(var cage in cages)
+			{
+				var comp = cage.GetComp<CompAssignableToPawn_Cage>();
+				if(comp != null)
+				{
+					if(cage.GetAssignedPawns().Contains(pawn) && comp.HasFreeSlot &&
+						(!onlyIfInside || cage.OccupiedRect().Contains(pawn.Position)))
+					{
+						return cage;
+					}
+				}
+			}
+			return null;
+		}
+	}
 	public class Building_Cage: Building_Bed
 	{
 		private bool changedTerrain = false;
+		//TODO: patch `GenConstruct.TerrainCanSupport()` to disallow changing floor under cages.
 		public override void SpawnSetup(Map map, bool respawningAfterLoad)
 		{
 			base.SpawnSetup(map, respawningAfterLoad);
+			map.GetComponent<MapComponent_Cage>().cages.AddDistinct(this);
 			if(!this.changedTerrain)
 			{
 				foreach(var c in this.OccupiedRect())
 				{
-					base.Map.terrainGrid.SetTerrain(c, this.def.building.naturalTerrain ?? TerrainDefOf.WoodPlankFloor);
+					this.Map.terrainGrid.SetTerrain(c, this.def.building.naturalTerrain ?? TerrainDefOf.WoodPlankFloor);
 				}
 			}
+		}
+		public override void DeSpawn(DestroyMode mode = DestroyMode.Vanish)
+		{
+			base.DeSpawn(mode);
+			this.Map.GetComponent<MapComponent_Cage>().cages.Remove(this);
+			if(mode is DestroyMode.Deconstruct)
+			{
+				foreach(var c in this.OccupiedRect())
+				{
+					if(this.Map.terrainGrid.TerrainAt(c) == this.def.building.naturalTerrain)
+					{
+						this.Map.terrainGrid.RemoveTopLayer(c, true);
+					}
+				}
+			}
+			this.changedTerrain = false;
 		}
 		public override bool BlocksPawn(Pawn p)
 		{
@@ -57,7 +99,7 @@ namespace ZzZomboRW
 		}
 		public override string GetUniqueLoadID() => string.Concat(new object[]
 		{
-			"Cage_",
+			"ZzZomboRW_AnimalCage_",
 			this.ID,
 		});
 		public override void ExposeData()
@@ -76,12 +118,11 @@ namespace ZzZomboRW
 	}
 	public class CompAssignableToPawn_Cage: CompAssignableToPawn_Bed
 	{
-		public static readonly Dictionary<Map, List<Building>> cache = new Dictionary<Map, List<Building>>();
-
-		public static bool HasFreeCagesFor(Pawn target) => FindCageFor(target) != null;
+		public static bool HasFreeCagesFor(Pawn pawn) => pawn.Map.GetComponent<MapComponent_Cage>().
+			FindCageFor(pawn) != null;
 		public static Building FindCageFor(Pawn pawn, bool onlyIfInside = true)
 		{
-			foreach(var cage in cache[pawn.Map])
+			foreach(var cage in pawn.Map.GetComponent<MapComponent_Cage>().cages)
 			{
 				var comp = cage.GetComp<CompAssignableToPawn_Cage>();
 				if(comp != null)
@@ -95,6 +136,7 @@ namespace ZzZomboRW
 			}
 			return null;
 		}
+
 		private Area_Cage area;
 		public Area_Cage Area
 		{
@@ -151,6 +193,16 @@ namespace ZzZomboRW
 						pawn.Faction == bed.Faction ^ bed.ForPrisoners);
 			}
 		}
+		protected override bool ShouldShowAssignmentGizmo() => true;
+		public override void TryAssignPawn(Pawn pawn)
+		{
+			if(pawn.ownership == null)
+			{
+				pawn.ownership = new Pawn_Ownership(pawn);
+			}
+			base.TryAssignPawn(pawn);
+		}
+
 		protected override string GetAssignmentGizmoLabel()
 		{
 			//FIXME: Update the translation key.
@@ -218,7 +270,7 @@ namespace ZzZomboRW
 				return false;
 			});
 			//yield return Toils_Bed.ClaimBedIfNonMedical(TargetIndex.B, TargetIndex.A);
-			base.AddFinishAction(delegate
+			this.AddFinishAction(delegate
 			{
 				var cage = this.DropBed;
 				var target = this.Takee;
@@ -243,7 +295,7 @@ namespace ZzZomboRW
 						}
 					}
 					var position = new IntVec3(cage.InteractionCell.ToVector3()).ClampInsideRect(cage.OccupiedRect());
-					this.pawn.carryTracker.TryDropCarriedThing(position, ThingPlaceMode.Direct, out var thing, null);
+					this.pawn.carryTracker.TryDropCarriedThing(position, ThingPlaceMode.Direct, out var thing);
 					if(!cage.Destroyed && (cage.OwnersForReading.Contains(target)))
 					{
 						target.jobs.Notify_TuckedIntoBed(cage);
@@ -271,25 +323,33 @@ namespace ZzZomboRW
 				FailOnNonMedicalBedNotOwned(TargetIndex.B, TargetIndex.A);
 			toil.AddPreInitAction(new Action(() =>
 			{
-				if(this.Takee.playerSettings == null)
+				var target = this.Takee;
+				if(target.playerSettings == null)
 				{
-					this.Takee.playerSettings = new Pawn_PlayerSettings(this.Takee);
+					target.playerSettings = new Pawn_PlayerSettings(target);
+				}
+				if(target.RaceProps.Animal)
+				{
+					if(!target.RaceProps.IsMechanoid && target.training is null)
+					{
+						target.training = new Pawn_TrainingTracker(target);
+					}
 				}
 				if(this.job.def.makeTargetPrisoner)
 				{
-					if(this.Takee.guest is null)
+					if(target.guest is null && !target.AnimalOrWildMan())
 					{
-						this.Takee.guest = new Pawn_GuestTracker(this.Takee);
+						target.guest = new Pawn_GuestTracker(target);
 					}
-					if(this.Takee.guest.Released)
+					if(target.guest?.Released is true)
 					{
-						this.Takee.guest.Released = false;
-						this.Takee.guest.interactionMode = PrisonerInteractionModeDefOf.ReduceResistance;
-						GenGuest.RemoveHealthyPrisonerReleasedThoughts(this.Takee);
+						target.guest.Released = false;
+						target.guest.interactionMode = PrisonerInteractionModeDefOf.ReduceResistance;
+						GenGuest.RemoveHealthyPrisonerReleasedThoughts(target);
 					}
-					if(!this.Takee.IsPrisonerOfColony)
+					if(!target.IsPrisonerOfColony)
 					{
-						this.Takee.guest.CapturedBy(Faction.OfPlayer, this.pawn);
+						target.guest?.CapturedBy(Faction.OfPlayer, this.pawn);
 					}
 				}
 			}));
@@ -329,6 +389,38 @@ namespace ZzZomboRW
 			//		__instance.AllAreas.Add(new Area_Cage(__instance));
 			//	}
 			//}
+		}
+	}
+	public class ThinkNode_ConditionalInsideCage: ThinkNode_Conditional
+	{
+		public override ThinkResult TryIssueJobPackage(Pawn pawn, JobIssueParams jobParams)
+		{
+			ThinkResult result;
+			try
+			{
+				if(pawn.mindState.duty?.focus.HasThing is true)
+				{
+					if(this.Satisfied(pawn) ^ this.invert)
+					{
+						var area = pawn.mindState.duty.focus.Thing.OccupiedRect();
+						pawn.mindState.maxDistToSquadFlag = Math.Max(area.Width, area.Height);
+					}
+					else
+					{
+						pawn.mindState.maxDistToSquadFlag = -1;
+					}
+				}
+				result = base.TryIssueJobPackage(pawn, jobParams);
+			}
+			finally
+			{
+				pawn.mindState.maxDistToSquadFlag = -1f;
+			}
+			return result;
+		}
+		protected override bool Satisfied(Pawn pawn)
+		{
+			return pawn.mindState.duty?.focus.HasThing is true && pawn.Position.IsInside(pawn.mindState.duty.focus.Thing);
 		}
 	}
 	//public class CompProperties_X: CompProperties

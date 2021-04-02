@@ -7,7 +7,7 @@
 		<description>A small cage to keep fitting animals in. Fits smaller animals like chickens, cats, or small dogs. Animals inside are peaceful and will be interacted with by colonists even if they are wild.</description>
 		<rotatable>true</rotatable>
 		<fillPercent>0.25</fillPercent>
-		<pathCost>9000</pathCost>
+		<!-- <pathCost>9000</pathCost> -->
 		<passability>Standable</passability>
 		<canOverlapZones>false</canOverlapZones>
 		<techLevel>Medieval</techLevel>
@@ -32,7 +32,9 @@
 		</stuffCategories>
 		<costStuffCount>25</costStuffCount>
 		<building>
+			<isSittable>true</isSittable>
 			<naturalTerrain>WoodPlankFloor</naturalTerrain>
+			<leaveTerrain>WoodPlankFloor</leaveTerrain>
 			<bed_humanlike>false</bed_humanlike>
 			<bed_maxBodySize>0.65</bed_maxBodySize>
 			<bed_showSleeperBody>true</bed_showSleeperBody>
@@ -88,4 +90,100 @@
 			<li>Manipulation</li>
 		</requiredCapacities>
 	</WorkGiverDef>
+	<!-- <WorkGiverDef>
+		<defName>ZzZomboRW_AnimalCage_AnimalInteraction</defName>
+		<label>take care of captured animals</label>
+		<giverClass>WorkGiver_DoBill</giverClass>
+		<workType>Handler</workType>
+		<priorityInType>30</priorityInType>
+		<verb>take care of</verb>
+		<gerund>caring for</gerund>
+		<requiredCapacities>
+			<li>Manipulation</li>
+		</requiredCapacities>
+		<prioritizeSustains>true</prioritizeSustains>
+	</WorkGiverDef> -->
+	<DutyDef>
+		<defName>ZzZomboRW_AnimalCage_BeingHelpCaptive</defName>
+		<alwaysShowWeapon>false</alwaysShowWeapon>
+		<threatDisabled>true</threatDisabled>
+		<attackDownedIfStarving>true</attackDownedIfStarving>
+		<thinkNode Class="ThinkNode_Priority">
+			<leaveJoinableLordIfIssuesJob>true</leaveJoinableLordIfIssuesJob>
+			<subNodes>
+				<li Class="ZzZomboRW.ThinkNode_ConditionalInsideCage">
+					<subNodes>
+						<li Class="ThinkNode_Subtree">
+							<treeDef>Downed</treeDef>
+						</li>
+						<li Class="ThinkNode_Subtree">
+							<treeDef>BurningResponse</treeDef>
+						</li>
+						<li Class="JobGiver_ReactToCloseMeleeThreat" />
+						<li Class="ThinkNode_Subtree">
+							<treeDef>MentalStateNonCritical</treeDef>
+						</li>
+						<li Class="ThinkNode_Tagger">
+							<tagToGive>RestingForMedicalReasons</tagToGive>
+							<subNodes>
+								<li Class="JobGiver_PatientGoToBed" />
+							</subNodes>
+						</li>
+						<li Class="ThinkNode_ConditionalNPCCanSelfTendNow">
+							<subNodes>
+								<li Class="JobGiver_SelfTend" />
+							</subNodes>
+						</li>
+						<li Class="JobGiver_SeekSafeTemperature" />
+						<li Class="JobGiver_SeekAllowedArea" />
+						<li Class="ThinkNode_QueuedJob" />
+						<li Class="ThinkNode_Subtree">
+							<treeDef>SatisfyBasicNeeds</treeDef>
+						</li>
+						<li Class="ThinkNode_Tagger">
+							<tagToGive>ChangingApparel</tagToGive>
+							<subNodes>
+								<li Class="JobGiver_PrisonerGetDressed" />
+							</subNodes>
+						</li>
+						<li Class="JobGiver_LayEgg" />
+						<li Class="ThinkNode_TraitBehaviors" />
+						<li Class="ThinkNode_ChancePerHour_Constant">
+							<mtbDays>60</mtbDays>
+							<subNodes>
+								<li Class="ThinkNode_Tagger">
+									<tagToGive>SatisfyingNeeds</tagToGive>
+									<subNodes>
+										<li Class="JobGiver_EatRandom" />
+									</subNodes>
+								</li>
+							</subNodes>
+						</li>
+						<li Class="JobGiver_WanderNearDutyLocation">
+							<wanderRadius>5</wanderRadius>
+						</li>
+					</subNodes>
+				</li>
+				<li Class="ZzZomboRW.ThinkNode_ConditionalInsideCage">
+					<invert>true</invert>
+					<subNodes>
+						<li Class="ThinkNode_Subtree">
+							<treeDef>ExitMapBestAndDefendSelf</treeDef>
+						</li>
+					</subNodes>
+				</li>
+			</subNodes>
+		</thinkNode>
+		<constantThinkNode Class="ThinkNode_Priority">
+			<subNodes>
+				<li Class="ThinkNode_ConditionalCanDoConstantThinkTreeJobNow">
+					<subNodes>
+						<li Class="JobGiver_FleePotentialExplosion" />
+						<!-- Flee enemies, tornados, meteorites, etc. -->
+						<li Class="JobGiver_AnimalFlee" />
+					</subNodes>
+				</li>
+			</subNodes>
+		</constantThinkNode>
+	</DutyDef>
 </Defs>
