@@ -2,10 +2,10 @@
 <Defs>
 	<ThingDef ParentName="FurnitureWithQualityBase" Name="ZzZomboRW_AnimalCage_Cage">
 		<defName>ZzZomboRW_AnimalCage_Cage</defName>
-		<thingClass>Building_Bed</thingClass>
+		<thingClass>ZzZomboRW.Building_Cage</thingClass>
 		<label>animal cage</label>
 		<description>A small cage to keep fitting animals in. Fits smaller animals like chickens, cats, or small dogs. Animals inside are peaceful and will be interacted with by colonists even if they are wild.</description>
-		<rotatable>false</rotatable>
+		<rotatable>true</rotatable>
 		<fillPercent>0.25</fillPercent>
 		<pathCost>40</pathCost>
 		<passability>Standable</passability>
@@ -24,19 +24,29 @@
 			</damageData>
 		</graphicData>
 		<castEdgeShadows>true</castEdgeShadows>
+		<costList>
+			<Wood>12</Wood>
+		</costList>
 		<stuffCategories>
 			<li>Metallic</li>
-			<li>Woody</li>
-			<li>Stony</li>
 		</stuffCategories>
 		<costStuffCount>25</costStuffCount>
 		<building>
+			<naturalTerrain>WoodPlankFloor</naturalTerrain>
 			<bed_humanlike>false</bed_humanlike>
 			<bed_maxBodySize>0.65</bed_maxBodySize>
 			<bed_showSleeperBody>true</bed_showSleeperBody>
 			<bed_healPerDay>4</bed_healPerDay>
+			<bed_caravansCanUse>false</bed_caravansCanUse>
+			<bed_defaultMedical>true</bed_defaultMedical>
 		</building>
+		<defaultPlacingRot>South</defaultPlacingRot>
+		<interactionCellOffset>(0,0,1)</interactionCellOffset>
+		<hasInteractionCell>true</hasInteractionCell>
 		<altitudeLayer>Building</altitudeLayer>
+		<placeWorkers>
+			<li>PlaceWorker_PreventInteractionSpotOverlap</li>
+		</placeWorkers>
 		<statBases>
 			<MaxHitPoints>75</MaxHitPoints>
 			<Flammability>0.6</Flammability>
@@ -55,4 +65,27 @@
 			</li>
 		</comps>
 	</ThingDef>
+	<JobDef>
+		<defName>ZzZomboRW_AnimalCage_Capture</defName>
+		<driverClass>ZzZomboRW.JobDriver_TakeToCage</driverClass>
+		<reportString>capturing TargetA.</reportString>
+		<alwaysShowWeapon>false</alwaysShowWeapon>
+		<makeTargetPrisoner>true</makeTargetPrisoner>
+		<casualInterruptible>false</casualInterruptible>
+	</JobDef>
+	<WorkGiverDef>
+		<defName>ZzZomboRW_AnimalCage_Capture</defName>
+		<label>take downed creature to cage</label>
+		<giverClass>ZzZomboRW.WorkGiver_RescueToCage</giverClass>
+		<canBeDoneWhileDrafted>true</canBeDoneWhileDrafted>
+		<autoTakeablePriorityDrafted>10</autoTakeablePriorityDrafted>
+		<workType>Warden</workType>
+		<verb>capture</verb>
+		<gerund>capturing</gerund>
+		<priorityInType>60</priorityInType>
+		<directOrderable>true</directOrderable>
+		<requiredCapacities>
+			<li>Manipulation</li>
+		</requiredCapacities>
+	</WorkGiverDef>
 </Defs>
