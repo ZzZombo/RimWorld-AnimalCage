@@ -7,6 +7,7 @@ using System.Linq;
 using Verse.AI;
 using Verse.AI.Group;
 using System;
+using RimWorld.Planet;
 
 internal static class MOD
 {
@@ -17,12 +18,12 @@ namespace ZzZomboRW
 {
 	public class MapComponent_Cage: MapComponent
 	{
-		public List<Building> cages = new List<Building>();
+		public List<Building_Bed> cages = new List<Building_Bed>();
 		public MapComponent_Cage(Map map) : base(map)
 		{
 		}
 		public bool HasFreeCagesFor(Pawn target) => FindCageFor(target) != null;
-		public Building FindCageFor(Pawn pawn, bool onlyIfInside = true)
+		public Building_Bed FindCageFor(Pawn pawn, bool onlyIfInside = true)
 		{
 			foreach(var cage in cages)
 			{
@@ -120,7 +121,7 @@ namespace ZzZomboRW
 	{
 		public static bool HasFreeCagesFor(Pawn pawn) => pawn.Map.GetComponent<MapComponent_Cage>().
 			FindCageFor(pawn) != null;
-		public static Building FindCageFor(Pawn pawn, bool onlyIfInside = true)
+		public static Building_Bed FindCageFor(Pawn pawn, bool onlyIfInside = true)
 		{
 			foreach(var cage in pawn.Map.GetComponent<MapComponent_Cage>().cages)
 			{
@@ -377,14 +378,95 @@ namespace ZzZomboRW
 					__result = cage is null;
 				}
 			}
-			//[HarmonyPatch(typeof(AreaManager), nameof(AreaManager.AddStartingAreas))]
-			//public static class AreaManager_AddStartingAreasPatch
+
+			//[HarmonyPatch(typeof(RestUtility), nameof(RestUtility.CurrentBed))]
+			//public static class RestUtility_CurrentBedPatch
 			//{
-			//	private static void Postfix(AreaManager __instance)
+			//	private static void Postfix(ref Building_Bed __result, Pawn __instance)
 			//	{
-			//		__instance.AllAreas.Add(new Area_Cage(__instance));
+			//		if(!(__result is null))
+			//		{
+			//			return;
+			//		}
+			//		__result = CompAssignableToPawn_Cage.FindCageFor(__instance, true);
 			//	}
 			//}
+		}
+	}
+	public class WorkGiver_Handler_DeliverFood: WorkGiver_Warden
+	{
+		public override Job JobOnThing(Pawn pawn, Thing t, bool forced = false)
+		{
+			if(pawn is null || !(t is Pawn target) || CompAssignableToPawn_Cage.FindCageFor(target) is null ||
+				target.IsFormingCaravan() || !pawn.CanReserveAndReach(pawn, PathEndMode.OnCell, pawn.NormalMaxDanger(),
+				ignoreOtherReservations: forced))
+			{
+				return null;
+			}
+			if(!target.guest.CanBeBroughtFood || target.needs.food.CurLevelPercentage >=
+				target.needs.food.PercentageThreshHungry + 0.04f)
+			{
+				return null;
+			}
+			if(FeedPatientUtility.ShouldBeFed(target))
+			{
+				return null;
+			}
+			if(!FoodUtility.TryFindBestFoodSourceFor(pawn, target, target.needs.food.CurCategory == HungerCategory.Starving,
+				out var thing, out var thingDef, false))
+			{
+				return null;
+			}
+			if(this.FoodAvailableInRoomTo(target))
+			{
+				return null;
+			}
+			var nutrition = FoodUtility.GetNutrition(thing, thingDef);
+			var job = JobMaker.MakeJob(JobDefOf.DeliverFood, thing, target);
+			job.count = FoodUtility.WillIngestStackCountOf(target, thingDef, nutrition);
+			job.targetC = RCellFinder.SpotToChewStandingNear(target, thing);
+			return job;
+		}
+		private bool FoodAvailableInRoomTo(Pawn target)
+		{
+			System.Reflection.MethodInfo mi = base.GetType().GetMethod("NutritionAvailableForFrom",
+				System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic);
+			if(target.carryTracker.CarriedThing != null && (float)mi.Invoke(null, new object[] {
+				target, target.carryTracker.CarriedThing }) > 0f)
+			{
+				return true;
+			}
+			var wantedNutrition = 0f;
+			var availableNutrition = 0f;
+			var room = target.GetRoom(RegionType.Set_Passable);
+			var cage = CompAssignableToPawn_Cage.FindCageFor(target);
+			for(int i = 0; i < (room?.RegionCount ?? 0); i++)
+			{
+				Region region = room.Regions[i];
+				List<Thing> list = region.ListerThings.ThingsInGroup(ThingRequestGroup.FoodSourceNotPlantOrTree);
+				for(int j = 0; j < list.Count; j++)
+				{
+					Thing thing = list[j];
+					if(thing.Position.IsInside(cage))
+					{
+						if(!thing.def.IsIngestible || thing.def.ingestible.preferability >
+							FoodPreferability.DesperateOnlyForHumanlikes)
+						{
+							availableNutrition += (float)mi.Invoke(null, new object[] { target, thing });
+						}
+					}
+				}
+				List<Thing> list2 = region.ListerThings.ThingsInGroup(ThingRequestGroup.Pawn);
+				for(int k = 0; k < list2.Count; k++)
+				{
+					Pawn pawn = list2[k] as Pawn;
+					if(pawn.IsPrisonerOfColony && pawn.needs.food.CurLevelPercentage < pawn.needs.food.PercentageThreshHungry + 0.02f && (pawn.carryTracker.CarriedThing == null || !pawn.WillEat(pawn.carryTracker.CarriedThing, null, true)))
+					{
+						wantedNutrition += pawn.needs.food.NutritionWanted;
+					}
+				}
+			}
+			return availableNutrition + 0.5f >= wantedNutrition;
 		}
 	}
 	public class ThinkNode_ConditionalInsideCage: ThinkNode_Conditional
