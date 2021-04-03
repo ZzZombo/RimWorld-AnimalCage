@@ -25,9 +25,9 @@
 		<li>Ludeon.RimWorld</li>
 		<li>ZzZombo.Framework</li>
 	</loadAfter>
-	<name>[UNNAMED MOD]</name>
+	<name>Animal Cages</name>
 	<author>ZzZombo</author>
-	<packageId>ZzZombo.Invalid</packageId>
-	<description>Mod template.</description>
+	<packageId>ZzZombo.commission.AnimalCages</packageId>
+	<description>Animal cages to capture downed wild animals into.</description>
 	<url></url>
 </ModMetaData>
