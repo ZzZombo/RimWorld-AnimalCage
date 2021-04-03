@@ -19,9 +19,7 @@ namespace ZzZomboRW
 	public class MapComponent_Cage: MapComponent
 	{
 		public List<Building_Bed> cages = new List<Building_Bed>();
-		public MapComponent_Cage(Map map) : base(map)
-		{
-		}
+		public MapComponent_Cage(Map map) : base(map) { }
 		public bool HasFreeCagesFor(Pawn target) => this.FindCageFor(target) != null;
 		public Building_Bed FindCageFor(Pawn pawn, bool onlyIfInside = true)
 		{
@@ -72,24 +70,24 @@ namespace ZzZomboRW
 			}
 			this.changedTerrain = false;
 		}
-		public override bool BlocksPawn(Pawn p)
-		{
-			if(base.BlocksPawn(p))
-			{
-				return true;
-			}
-			var comp = this.GetComp<CompAssignableToPawn_Cage>();
-			if(!(comp is null))
-			{
-				var area = new Area_Cage();
-				foreach(var c in this.OccupiedRect())
-				{
-					area[c] = true;
-				}
-				return !p.Position.IsInside(this) || p.CurJob?.AnyTargetOutsideArea(area) is false;
-			}
-			return false;
-		}
+		//public override bool BlocksPawn(Pawn p)
+		//{
+		//	if(base.BlocksPawn(p))
+		//	{
+		//		return true;
+		//	}
+		//	var comp = this.GetComp<CompAssignableToPawn_Cage>();
+		//	if(!(comp is null))
+		//	{
+		//		var area = new Area_Cage();
+		//		foreach(var c in this.OccupiedRect())
+		//		{
+		//			area[c] = true;
+		//		}
+		//		return !p.Position.IsInside(this) || p.CurJob?.AnyTargetOutsideArea(area) is false;
+		//	}
+		//	return false;
+		//}
 		public override void ExposeData()
 		{
 			base.ExposeData();
@@ -110,7 +108,7 @@ namespace ZzZomboRW
 	public class CompAssignableToPawn_Cage: CompAssignableToPawn_Bed
 	{
 		public static bool HasFreeCagesFor(Pawn pawn) => pawn.Map.GetComponent<MapComponent_Cage>().
-			FindCageFor(pawn) != null;
+			HasFreeCagesFor(pawn);
 		public static Building_Bed FindCageFor(Pawn pawn, bool onlyIfInside = true)
 		{
 			foreach(var cage in pawn.Map.GetComponent<MapComponent_Cage>().cages)
@@ -179,7 +177,7 @@ namespace ZzZomboRW
 		{
 			return t is Pawn target && target.Downed && !target.InBed() &&
 				CompAssignableToPawn_Cage.HasFreeCagesFor(target) &&
-				CompAssignableToPawn_Cage.FindCageFor(target, true) is null &&
+				CompAssignableToPawn_Cage.FindCageFor(target) is null &&
 				pawn.CanReserve(target, ignoreOtherReservations: forced) && !GenAI.EnemyIsNear(target, 40f);
 		}
 
@@ -187,7 +185,7 @@ namespace ZzZomboRW
 		{
 			if(t is Pawn victim)
 			{
-				var cage = CompAssignableToPawn_Cage.FindCageFor(victim);
+				var cage = CompAssignableToPawn_Cage.FindCageFor(victim, false);
 				if(cage is null)
 				{
 					return null;
@@ -336,11 +334,51 @@ namespace ZzZomboRW
 				}
 			}
 
-			[HarmonyPatch(typeof(Pawn_PathFollower), "TryEnterNextPathCell")]
-			public static class Pawn_PathFollower_TryEnterNextPathCellPatch
+			[HarmonyPatch(typeof(RegionCostCalculator), "PathableNeighborIndices", Priority.Last)]
+			public static class RegionCostCalculator_PathableNeighborIndicesPatch
 			{
-				private static void Prefix(Pawn_PathFollower __instance)
+				private static (Building_Bed, IntVec3) CageOnCell(int index, Map map)
 				{
+					var cell = map.cellIndices.IndexToCell(index);
+					var building = cell.GetEdifice(map);
+					if(building is Building_Bed cage)
+					{
+						var comp = cage.GetComp<CompAssignableToPawn_Cage>();
+						if(!(comp is null))
+						{
+							return (cage, cell);
+						}
+					}
+					return (null, cell);
+				}
+				private static void Postfix(ref List<int> __result, RegionCostCalculator __instance, int index)
+				{
+					var map = new Traverse(__instance).Field("map").GetValue<Map>();
+					var (cage1, cell1) = CageOnCell(index, map);
+					var result = new List<int>(8);
+					foreach(var idx in __result)
+					{
+						var (cage2, cell2) = CageOnCell(idx, map);
+						if(cage1 == cage2)
+						{
+							result.Add(idx);
+						}
+						else if(cage1 is null)
+						{
+							if(cage2.InteractionCell.Equals(cell1))
+							{
+								result.Add(idx);
+							}
+						}
+						else if(cage2 is null)
+						{
+							if(cage1.InteractionCell.Equals(cell2))
+							{
+								result.Add(idx);
+							}
+						}
+					}
+					__result = result;
 				}
 			}
 
