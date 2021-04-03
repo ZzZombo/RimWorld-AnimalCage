@@ -309,6 +309,8 @@ namespace ZzZomboRW
 					{
 						LessonAutoActivator.TeachOpportunity(ConceptDefOf.PrisonerTab, this.Takee, OpportunityType.GoodToKnow);
 					}
+					target.mindState.duty = new PawnDuty(DefDatabase<DutyDef>.GetNamed("ZzZomboRW_AnimalCage_BeingHelpCaptive"),
+						cage);
 				}
 			});
 			yield return Toils_Goto.GotoThing(TargetIndex.A, PathEndMode.ClosestTouch).
@@ -319,7 +321,7 @@ namespace ZzZomboRW
 					false, TraverseMode.ByPawn)).
 				FailOn(() => !this.Takee.Downed).
 				FailOnSomeonePhysicallyInteracting(TargetIndex.A);
-			Toil toil = Toils_Haul.StartCarryThing(TargetIndex.A, false, false, false).
+			Toil toil = Toils_Haul.StartCarryThing(TargetIndex.A).
 				FailOnNonMedicalBedNotOwned(TargetIndex.B, TargetIndex.A);
 			toil.AddPreInitAction(new Action(() =>
 			{
@@ -366,12 +368,13 @@ namespace ZzZomboRW
 			{
 				private static void Postfix(ref bool __result, Pawn_PlayerSettings __instance)
 				{
+					if(__result)
+					{
+						return;
+					}
 					var pawn = new Traverse(__instance).Field<Pawn>("pawn").Value;
 					var cage = CompAssignableToPawn_Cage.FindCageFor(pawn, true);
-					if(cage != null)
-					{
-						__result = true;
-					}
+					__result = cage is null;
 				}
 			}
 			//[HarmonyPatch(typeof(AreaManager), nameof(AreaManager.AddStartingAreas))]
