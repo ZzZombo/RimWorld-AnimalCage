@@ -276,8 +276,7 @@ namespace ZzZomboRW
 				var target = this.Takee;
 				if(target.ownership.OwnedBed == cage && this.pawn.Position == cage.InteractionCell)
 				{
-					var comp = cage.GetComp<CompAssignableToPawn_Cage>();
-					if(this.job.def.makeTargetPrisoner)
+					if(this.job.def.makeTargetPrisoner && !target.AnimalOrWildMan())
 					{
 						Lord lord = target.GetLord();
 						if(lord != null)
@@ -300,6 +299,7 @@ namespace ZzZomboRW
 					{
 						target.jobs.Notify_TuckedIntoBed(cage);
 						target.mindState.Notify_TuckedIntoBed();
+						var comp = cage.GetComp<CompAssignableToPawn_Cage>();
 						if(comp != null)
 						{
 							target.playerSettings.AreaRestriction = comp.Area;
@@ -328,20 +328,13 @@ namespace ZzZomboRW
 				{
 					target.playerSettings = new Pawn_PlayerSettings(target);
 				}
-				if(target.RaceProps.Animal)
+				if(this.job.def.makeTargetPrisoner && !target.AnimalOrWildMan())
 				{
-					if(!target.RaceProps.IsMechanoid && target.training is null)
-					{
-						target.training = new Pawn_TrainingTracker(target);
-					}
-				}
-				if(this.job.def.makeTargetPrisoner)
-				{
-					if(target.guest is null && !target.AnimalOrWildMan())
+					if(target.guest is null)
 					{
 						target.guest = new Pawn_GuestTracker(target);
 					}
-					if(target.guest?.Released is true)
+					if(target.guest.Released is true)
 					{
 						target.guest.Released = false;
 						target.guest.interactionMode = PrisonerInteractionModeDefOf.ReduceResistance;
@@ -349,7 +342,7 @@ namespace ZzZomboRW
 					}
 					if(!target.IsPrisonerOfColony)
 					{
-						target.guest?.CapturedBy(Faction.OfPlayer, this.pawn);
+						target.guest.CapturedBy(Faction.OfPlayer, this.pawn);
 					}
 				}
 			}));
