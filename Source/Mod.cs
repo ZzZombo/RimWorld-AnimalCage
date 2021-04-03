@@ -351,6 +351,8 @@ namespace ZzZomboRW
 			}));
 			yield return toil;
 			yield return Toils_Goto.GotoThing(TargetIndex.B, PathEndMode.InteractionCell);
+			var cell = RestUtility.GetBedSleepingSlotPosFor(this.Takee, this.DropBed);
+			yield return Toils_Goto.GotoThing(TargetIndex.B, cell);
 			yield return Toils_Reserve.Release(TargetIndex.B);
 			yield break;
 		}
