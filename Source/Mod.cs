@@ -22,7 +22,7 @@ namespace ZzZomboRW
 		public MapComponent_Cage(Map map) : base(map)
 		{
 		}
-		public bool HasFreeCagesFor(Pawn target) => FindCageFor(target) != null;
+		public bool HasFreeCagesFor(Pawn target) => this.FindCageFor(target) != null;
 		public Building_Bed FindCageFor(Pawn pawn, bool onlyIfInside = true)
 		{
 			foreach(var cage in cages)
@@ -237,7 +237,7 @@ namespace ZzZomboRW
 				{
 					return null;
 				}
-				Job job = JobMaker.MakeJob(DefDatabase<JobDef>.GetNamed("ZzZomboRW_AnimalCage_Capture"), victim, cage);
+				var job = JobMaker.MakeJob(DefDatabase<JobDef>.GetNamed("ZzZomboRW_AnimalCage_Capture"), victim, cage);
 				job.count = 1;
 				return job;
 			}
@@ -279,7 +279,7 @@ namespace ZzZomboRW
 				{
 					if(this.job.def.makeTargetPrisoner && !target.AnimalOrWildMan())
 					{
-						Lord lord = target.GetLord();
+						var lord = target.GetLord();
 						if(lord != null)
 						{
 							lord.Notify_PawnAttemptArrested(target);
@@ -296,7 +296,7 @@ namespace ZzZomboRW
 					}
 					var position = new IntVec3(cage.InteractionCell.ToVector3()).ClampInsideRect(cage.OccupiedRect());
 					this.pawn.carryTracker.TryDropCarriedThing(position, ThingPlaceMode.Direct, out var thing);
-					if(!cage.Destroyed && (cage.OwnersForReading.Contains(target)))
+					if(!cage.Destroyed && cage.OwnersForReading.Contains(target))
 					{
 						target.jobs.Notify_TuckedIntoBed(cage);
 						target.mindState.Notify_TuckedIntoBed();
@@ -322,7 +322,7 @@ namespace ZzZomboRW
 					false, TraverseMode.ByPawn)).
 				FailOn(() => !this.Takee.Downed).
 				FailOnSomeonePhysicallyInteracting(TargetIndex.A);
-			Toil toil = Toils_Haul.StartCarryThing(TargetIndex.A).
+			var toil = Toils_Haul.StartCarryThing(TargetIndex.A).
 				FailOnNonMedicalBedNotOwned(TargetIndex.B, TargetIndex.A);
 			toil.AddPreInitAction(new Action(() =>
 			{
@@ -360,7 +360,7 @@ namespace ZzZomboRW
 		{
 			static HarmonyHelper()
 			{
-				Harmony harmony = new Harmony($"ZzZomboRW.{MOD.NAME}");
+				var harmony = new Harmony($"ZzZomboRW.{MOD.NAME}");
 				harmony.PatchAll();
 			}
 
@@ -395,6 +395,14 @@ namespace ZzZomboRW
 	}
 	public class WorkGiver_Handler_DeliverFood: WorkGiver_Warden
 	{
+		public override IEnumerable<Thing> PotentialWorkThingsGlobal(Pawn pawn)
+		{
+			return pawn.Map.mapPawns.AllPawns.FindAll(target => CompAssignableToPawn_Cage.FindCageFor(target) != null);
+		}
+		public override bool ShouldSkip(Pawn pawn, bool forced = false)
+		{
+			return pawn.Map.GetComponent<MapComponent_Cage>().cages.Count < 1;
+		}
 		public override Job JobOnThing(Pawn pawn, Thing t, bool forced = false)
 		{
 			if(pawn is null || !(t is Pawn target) || CompAssignableToPawn_Cage.FindCageFor(target) is null ||
@@ -403,7 +411,7 @@ namespace ZzZomboRW
 			{
 				return null;
 			}
-			if(!target.guest.CanBeBroughtFood || target.needs.food.CurLevelPercentage >=
+			if(!target.Downed || target.needs.food.CurLevelPercentage >=
 				target.needs.food.PercentageThreshHungry + 0.04f)
 			{
 				return null;
@@ -429,7 +437,7 @@ namespace ZzZomboRW
 		}
 		private bool FoodAvailableInRoomTo(Pawn target)
 		{
-			System.Reflection.MethodInfo mi = base.GetType().GetMethod("NutritionAvailableForFrom",
+			var mi = base.GetType().GetMethod("NutritionAvailableForFrom",
 				System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic);
 			if(target.carryTracker.CarriedThing != null && (float)mi.Invoke(null, new object[] {
 				target, target.carryTracker.CarriedThing }) > 0f)
@@ -440,13 +448,10 @@ namespace ZzZomboRW
 			var availableNutrition = 0f;
 			var room = target.GetRoom(RegionType.Set_Passable);
 			var cage = CompAssignableToPawn_Cage.FindCageFor(target);
-			for(int i = 0; i < (room?.RegionCount ?? 0); i++)
+			foreach(var region in room?.Regions)
 			{
-				Region region = room.Regions[i];
-				List<Thing> list = region.ListerThings.ThingsInGroup(ThingRequestGroup.FoodSourceNotPlantOrTree);
-				for(int j = 0; j < list.Count; j++)
+				foreach(var thing in region.ListerThings.ThingsInGroup(ThingRequestGroup.FoodSourceNotPlantOrTree))
 				{
-					Thing thing = list[j];
 					if(thing.Position.IsInside(cage))
 					{
 						if(!thing.def.IsIngestible || thing.def.ingestible.preferability >
@@ -456,10 +461,10 @@ namespace ZzZomboRW
 						}
 					}
 				}
-				List<Thing> list2 = region.ListerThings.ThingsInGroup(ThingRequestGroup.Pawn);
-				for(int k = 0; k < list2.Count; k++)
+				var list2 = region.ListerThings.ThingsInGroup(ThingRequestGroup.Pawn);
+				for(var k = 0; k < list2.Count; k++)
 				{
-					Pawn pawn = list2[k] as Pawn;
+					var pawn = list2[k] as Pawn;
 					if(pawn.IsPrisonerOfColony && pawn.needs.food.CurLevelPercentage < pawn.needs.food.PercentageThreshHungry + 0.02f && (pawn.carryTracker.CarriedThing == null || !pawn.WillEat(pawn.carryTracker.CarriedThing, null, true)))
 					{
 						wantedNutrition += pawn.needs.food.NutritionWanted;
