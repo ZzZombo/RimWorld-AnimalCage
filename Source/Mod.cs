@@ -81,7 +81,12 @@ namespace ZzZomboRW
 			var comp = this.GetComp<CompAssignableToPawn_Cage>();
 			if(!(comp is null))
 			{
-				return !this.GetAssignedPawns().Contains(p) && (!p.CurJob?.AnyTargetOutsideArea(comp.Area) ?? true);
+				var area = new Area_Cage();
+				foreach(var c in this.OccupiedRect())
+				{
+					area[c] = true;
+				}
+				return !p.Position.IsInside(this) || p.CurJob?.AnyTargetOutsideArea(area) is false;
 			}
 			return false;
 		}
@@ -93,28 +98,13 @@ namespace ZzZomboRW
 	}
 	public class Area_Cage: Area
 	{
-		public bool valid = false;
-		public Area_Cage(AreaManager manager) : base(manager)
-		{
-			this.valid = true;
-		}
 		public override string GetUniqueLoadID() => string.Concat(new object[]
 		{
 			"ZzZomboRW_AnimalCage_",
 			this.ID,
 		});
-		public override void ExposeData()
-		{
-			base.ExposeData();
-			Scribe_Values.Look(ref this.valid, "valid");
-		}
-
-		public override bool Mutable => !(this.valid is true);
-
-		public override string Label => "ZzZomboRW_Area_Cage".Translate();
-
+		public override string Label => "ZzZomboRW_Area_Cage";
 		public override Color Color => SimpleColor.White.ToUnityColor();
-
 		public override int ListPriority => 0;
 	}
 	public class CompAssignableToPawn_Cage: CompAssignableToPawn_Bed
@@ -138,47 +128,12 @@ namespace ZzZomboRW
 			return null;
 		}
 
-		private Area_Cage area;
-		public Area_Cage Area
-		{
-			get => this.area;
-			set
-			{
-				this.Area = value;
-			}
-		}
-		public void ExposeData()
-		{
-			Scribe_References.Look(ref this.area, "area", false);
-		}
 		public override void Initialize(CompProperties props)
 		{
 			base.Initialize(props);
 			if(this.parent is Building_Bed cage)
 			{
 				cage.ForPrisoners = true;
-			}
-		}
-		public override void PostDeSpawn(Map map)
-		{
-			base.PostDeSpawn(map);
-			this.area.valid = false;
-			this.area.Delete();
-		}
-		public override void PostSpawnSetup(bool respawningAfterLoad)
-		{
-			base.PostSpawnSetup(respawningAfterLoad);
-			var bed = this.parent;
-			var areaManager = bed.Map.areaManager;
-			if(this.Area is null)
-			{
-				this.Area = new Area_Cage(areaManager);
-				areaManager.AllAreas.Add(this.Area);
-			}
-			var rect = bed.OccupiedRect();
-			foreach(var c in bed.Map.AllCells)
-			{
-				this.Area[c] = rect.Contains(c);
 			}
 		}
 		public override IEnumerable<Pawn> AssigningCandidates
@@ -275,43 +230,38 @@ namespace ZzZomboRW
 			{
 				var cage = this.DropBed;
 				var target = this.Takee;
-				if(target.ownership.OwnedBed == cage && this.pawn.Position == cage.InteractionCell)
+				if(target.ownership.OwnedBed == cage && this.pawn.Position.IsInside(cage))
 				{
-					if(this.job.def.makeTargetPrisoner && !target.AnimalOrWildMan())
-					{
-						var lord = target.GetLord();
-						if(lord != null)
-						{
-							lord.Notify_PawnAttemptArrested(target);
-						}
-						GenClamor.DoClamor(target, 10f, ClamorDefOf.Harm);
-						if(!target.IsPrisoner)
-						{
-							QuestUtility.SendQuestTargetSignals(target.questTags, "Arrested", target.Named("SUBJECT"));
-						}
-						if(!target.CheckAcceptArrest(this.pawn))
-						{
-							this.pawn.jobs.EndCurrentJob(JobCondition.Incompletable, true, true);
-						}
-					}
-					var position = new IntVec3(cage.InteractionCell.ToVector3()).ClampInsideRect(cage.OccupiedRect());
-					this.pawn.carryTracker.TryDropCarriedThing(position, ThingPlaceMode.Direct, out var thing);
 					if(!cage.Destroyed && cage.OwnersForReading.Contains(target))
 					{
-						target.jobs.Notify_TuckedIntoBed(cage);
-						target.mindState.Notify_TuckedIntoBed();
-						var comp = cage.GetComp<CompAssignableToPawn_Cage>();
-						if(comp != null)
+						var position = RestUtility.GetBedSleepingSlotPosFor(target, cage);
+						this.pawn.carryTracker.TryDropCarriedThing(position, ThingPlaceMode.Direct, out var thing);
+						if(this.pawn.Position.IsInside(cage))
 						{
-							target.playerSettings.AreaRestriction = comp.Area;
+							if(this.job.def.makeTargetPrisoner && !target.AnimalOrWildMan())
+							{
+								var lord = target.GetLord();
+								if(lord != null)
+								{
+									lord.Notify_PawnAttemptArrested(target);
+								}
+								GenClamor.DoClamor(target, 10f, ClamorDefOf.Harm);
+								if(!target.IsPrisoner)
+								{
+									QuestUtility.SendQuestTargetSignals(target.questTags, "Arrested", target.Named("SUBJECT"));
+								}
+							}
+							target.jobs.Notify_TuckedIntoBed(cage);
+							target.mindState.Notify_TuckedIntoBed();
+							var comp = cage.GetComp<CompAssignableToPawn_Cage>();
+							target.mindState.duty = new PawnDuty(DefDatabase<DutyDef>.GetNamed("ZzZomboRW_AnimalCage_BeingHelpCaptive"),
+								cage);
 						}
 					}
 					if(target.IsPrisonerOfColony)
 					{
 						LessonAutoActivator.TeachOpportunity(ConceptDefOf.PrisonerTab, this.Takee, OpportunityType.GoodToKnow);
 					}
-					target.mindState.duty = new PawnDuty(DefDatabase<DutyDef>.GetNamed("ZzZomboRW_AnimalCage_BeingHelpCaptive"),
-						cage);
 				}
 			});
 			yield return Toils_Goto.GotoThing(TargetIndex.A, PathEndMode.ClosestTouch).
@@ -366,18 +316,31 @@ namespace ZzZomboRW
 				harmony.PatchAll();
 			}
 
-			[HarmonyPatch(typeof(Pawn_PlayerSettings), nameof(Pawn_PlayerSettings.RespectsAllowedArea))]
-			public static class Pawn_PlayerSettings_RespectsAllowedAreaPatch
+			[HarmonyPatch(typeof(Reachability), nameof(Reachability.CanReach), Priority.Last)]
+			public static class Reachability_CanReachPatch
 			{
-				private static void Postfix(ref bool __result, Pawn_PlayerSettings __instance)
+				private static void Postfix(ref bool __result, Reachability __instance, IntVec3 start, LocalTargetInfo dest,
+					PathEndMode peMode, TraverseParms traverseParams)
 				{
-					if(__result)
+					var pawn = traverseParams.pawn;
+					if(__result && CompAssignableToPawn_Cage.FindCageFor(pawn) is null)
 					{
 						return;
 					}
-					var pawn = new Traverse(__instance).Field<Pawn>("pawn").Value;
-					var cage = CompAssignableToPawn_Cage.FindCageFor(pawn, true);
-					__result = cage is null;
+					if(peMode == PathEndMode.Touch && TouchPathEndModeUtility.
+						IsAdjacentOrInsideAndAllowedToTouch(pawn.Position, dest, pawn.Map))
+					{
+						return;
+					}
+					__result = false;
+				}
+			}
+
+			[HarmonyPatch(typeof(Pawn_PathFollower), "TryEnterNextPathCell")]
+			public static class Pawn_PathFollower_TryEnterNextPathCellPatch
+			{
+				private static void Prefix(Pawn_PathFollower __instance)
+				{
 				}
 			}
 
@@ -480,7 +443,6 @@ namespace ZzZomboRW
 	{
 		public override ThinkResult TryIssueJobPackage(Pawn pawn, JobIssueParams jobParams)
 		{
-			ThinkResult result;
 			try
 			{
 				if(pawn.mindState.duty?.focus.HasThing is true)
@@ -488,20 +450,21 @@ namespace ZzZomboRW
 					if(this.Satisfied(pawn) ^ this.invert)
 					{
 						var area = pawn.mindState.duty.focus.Thing.OccupiedRect();
-						pawn.mindState.maxDistToSquadFlag = Math.Max(area.Width, area.Height);
+						pawn.mindState.maxDistToSquadFlag = Math.Max(area.Width / 2, area.Height / 2);
+						return ((ThinkNode_Conditional)this).TryIssueJobPackage(pawn, jobParams);
 					}
 					else
 					{
 						pawn.mindState.maxDistToSquadFlag = -1;
+						return ThinkResult.NoJob;
 					}
 				}
-				result = base.TryIssueJobPackage(pawn, jobParams);
 			}
 			finally
 			{
 				pawn.mindState.maxDistToSquadFlag = -1f;
 			}
-			return result;
+			return ThinkResult.NoJob;
 		}
 		protected override bool Satisfied(Pawn pawn)
 		{
