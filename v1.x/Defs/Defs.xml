@@ -1,36 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
 <Defs>
-	<ThingDef ParentName="FurnitureWithQualityBase" Name="ZzZomboRW_AnimalCage_Cage">
-		<defName>ZzZomboRW_AnimalCage_Cage</defName>
+	<ThingDef ParentName="FurnitureWithQualityBase" Name="ZzZomboRW_AnimalCage_Cage_Base" Abstract="true">
 		<thingClass>ZzZomboRW.Building_Cage</thingClass>
-		<label>animal cage</label>
-		<description>A small cage to keep fitting animals in. Fits smaller animals like chickens, cats, or small dogs. Animals inside are peaceful and will be interacted with by colonists even if they are wild.</description>
 		<rotatable>true</rotatable>
 		<fillPercent>0.25</fillPercent>
+		<designationCategory>Misc</designationCategory>
 		<!-- <pathCost>9000</pathCost> -->
 		<passability>Standable</passability>
 		<canOverlapZones>false</canOverlapZones>
 		<techLevel>Medieval</techLevel>
-		<graphicData>
-			<!-- FIXME: update the graphic! -->
-			<texPath>Things/Building/Misc/AnimalBed/AnimalSleepBox</texPath>
-			<graphicClass>Graphic_Single</graphicClass>
-			<damageData>
-				<rect>(0.05,0.05,0.9,0.9)</rect>
-				<cornerTL>Damage/Corner</cornerTL>
-				<cornerTR>Damage/Corner</cornerTR>
-				<cornerBL>Damage/Corner</cornerBL>
-				<cornerBR>Damage/Corner</cornerBR>
-			</damageData>
-		</graphicData>
 		<castEdgeShadows>true</castEdgeShadows>
-		<costList>
-			<Wood>12</Wood>
-		</costList>
-		<stuffCategories>
-			<li>Metallic</li>
-		</stuffCategories>
-		<costStuffCount>25</costStuffCount>
 		<building>
 			<isSittable>true</isSittable>
 			<naturalTerrain>WoodPlankFloor</naturalTerrain>
@@ -40,10 +19,10 @@
 			<bed_showSleeperBody>true</bed_showSleeperBody>
 			<bed_healPerDay>4</bed_healPerDay>
 			<bed_caravansCanUse>false</bed_caravansCanUse>
-			<bed_defaultMedical>true</bed_defaultMedical>
+			<!-- <bed_defaultMedical>true</bed_defaultMedical> -->
 		</building>
 		<defaultPlacingRot>South</defaultPlacingRot>
-		<interactionCellOffset>(0,0,1)</interactionCellOffset>
+		<interactionCellOffset>(0,0,-1)</interactionCellOffset>
 		<hasInteractionCell>true</hasInteractionCell>
 		<altitudeLayer>Building</altitudeLayer>
 		<placeWorkers>
@@ -58,6 +37,67 @@
 			<Comfort>0.2</Comfort>
 			<ImmunityGainSpeedFactor>1</ImmunityGainSpeedFactor>
 			<SurgerySuccessChanceFactor>1</SurgerySuccessChanceFactor>
+		</statBases>
+	</ThingDef>
+	<ThingDef ParentName="ZzZomboRW_AnimalCage_Cage_Base">
+		<defName>ZzZomboRW_AnimalCage_Cage</defName>
+		<label>animal cage</label>
+		<description>A small cage to keep fitting animals in. Fits smaller animals like chickens, cats, or small dogs. Animals inside are peaceful and will be cared for by colonists even if they are wild.</description>
+		<graphicData>
+			<!-- FIXME: update the graphic! -->
+			<texPath>Things/Building/Misc/AnimalBed/AnimalSleepBox</texPath>
+			<graphicClass>Graphic_Single</graphicClass>
+			<damageData>
+				<rect>(0.05,0.05,0.9,0.9)</rect>
+				<cornerTL>Damage/Corner</cornerTL>
+				<cornerTR>Damage/Corner</cornerTR>
+				<cornerBL>Damage/Corner</cornerBL>
+				<cornerBR>Damage/Corner</cornerBR>
+			</damageData>
+		</graphicData>
+		<costList>
+			<WoodLog>12</WoodLog>
+		</costList>
+		<stuffCategories>
+			<li>Metallic</li>
+		</stuffCategories>
+		<costStuffCount>25</costStuffCount>
+		<comps>
+			<li Class="CompProperties_AssignableToPawn">
+				<compClass>ZzZomboRW.CompAssignableToPawn_Cage</compClass>
+				<drawAssignmentOverlay>false</drawAssignmentOverlay>
+				<maxAssignedPawnsCount>1</maxAssignedPawnsCount>
+			</li>
+		</comps>
+	</ThingDef>
+	<ThingDef ParentName="ZzZomboRW_AnimalCage_Cage_Base">
+		<defName>ZzZomboRW_AnimalCage_Cage_ThreeByThree</defName>
+		<label>medium animal cage</label>
+		<description>A meduim-sized cage to keep fitting animals in. Fits average animals like dogs, foxes, or monkeys. Animals inside are peaceful and will be cared for by colonists even if they are wild.</description>
+		<graphicData>
+			<!-- FIXME: update the graphic! -->
+			<texPath>Things/Building/Misc/AnimalBed/AnimalSleepBox</texPath>
+			<graphicClass>Graphic_Single</graphicClass>
+			<damageData>
+				<rect>(0.05,0.05,0.9,0.9)</rect>
+				<cornerTL>Damage/Corner</cornerTL>
+				<cornerTR>Damage/Corner</cornerTR>
+				<cornerBL>Damage/Corner</cornerBL>
+				<cornerBR>Damage/Corner</cornerBR>
+			</damageData>
+			<drawSize>(3,3)</drawSize>
+		</graphicData>
+		<size>(3,3)</size>
+		<interactionCellOffset>(0,0,-2)</interactionCellOffset>
+		<costStuffCount>225</costStuffCount>
+		<costList>
+			<WoodLog>108</WoodLog>
+		</costList>
+		<statBases>
+			<MaxHitPoints>150</MaxHitPoints>
+			<Flammability>0.6</Flammability>
+			<WorkToBuild>460</WorkToBuild>
+			<Mass>120</Mass>
 		</statBases>
 		<comps>
 			<li Class="CompProperties_AssignableToPawn">
@@ -107,7 +147,6 @@
 		<defName>ZzZomboRW_AnimalCage_BeingHelpCaptive</defName>
 		<alwaysShowWeapon>false</alwaysShowWeapon>
 		<threatDisabled>true</threatDisabled>
-		<attackDownedIfStarving>true</attackDownedIfStarving>
 		<thinkNode Class="ThinkNode_Priority">
 			<leaveJoinableLordIfIssuesJob>true</leaveJoinableLordIfIssuesJob>
 			<subNodes>
@@ -164,14 +203,14 @@
 						</li>
 					</subNodes>
 				</li>
-				<li Class="ZzZomboRW.ThinkNode_ConditionalInsideCage">
+				<!-- <li Class="ZzZomboRW.ThinkNode_ConditionalInsideCage">
 					<invert>true</invert>
 					<subNodes>
-						<li Class="ThinkNode_Subtree">
-							<treeDef>ExitMapBestAndDefendSelf</treeDef>
+						<li Class="ZzZomboRW.ThinkNode_Duty">
+							<dutyDef>ExitMapBestAndDefendSelf</dutyDef>
 						</li>
 					</subNodes>
-				</li>
+				</li> -->
 			</subNodes>
 		</thinkNode>
 		<constantThinkNode Class="ThinkNode_Priority">

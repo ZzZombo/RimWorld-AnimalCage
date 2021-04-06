@@ -1,13 +1,14 @@
-using UnityEngine;
-using HarmonyLib;
-using Verse;
-using RimWorld;
+using System;
 using System.Collections.Generic;
 using System.Linq;
+using HarmonyLib;
+using RimWorld;
+using RimWorld.Planet;
+using UnityEngine;
+using Verse;
 using Verse.AI;
 using Verse.AI.Group;
-using System;
-using RimWorld.Planet;
+using Verse.Sound;
 
 internal static class MOD
 {
@@ -18,18 +19,21 @@ namespace ZzZomboRW
 {
 	public class MapComponent_Cage: MapComponent
 	{
-		public List<Building_Bed> cages = new List<Building_Bed>();
-		public MapComponent_Cage(Map map) : base(map) { }
+		public List<Building_Bed> cages;
+		public MapComponent_Cage(Map map) : base(map)
+		{
+			this.cages = new List<Building_Bed>(0);
+		}
 		public bool HasFreeCagesFor(Pawn target) => this.FindCageFor(target) != null;
 		public Building_Bed FindCageFor(Pawn pawn, bool onlyIfInside = true)
 		{
-			foreach(var cage in cages)
+			foreach(var cage in this.cages)
 			{
-				var comp = cage.GetComp<CompAssignableToPawn_Cage>();
+				var comp = cage?.GetComp<CompAssignableToPawn_Cage>();
 				if(comp != null)
 				{
-					if(cage.GetAssignedPawns().Contains(pawn) && comp.HasFreeSlot &&
-						(!onlyIfInside || cage.OccupiedRect().Contains(pawn.Position)))
+					if(comp.AssignedPawnsForReading.Contains(pawn) &&
+						(!onlyIfInside && comp.HasFreeSlot || pawn.Position.IsInside(cage)))
 					{
 						return cage;
 					}
@@ -41,6 +45,7 @@ namespace ZzZomboRW
 	public class Building_Cage: Building_Bed
 	{
 		private bool changedTerrain = false;
+		public ushort pathCost = 8000;
 		//TODO: patch `GenConstruct.TerrainCanSupport()` to disallow changing floor under cages.
 		public override void SpawnSetup(Map map, bool respawningAfterLoad)
 		{
@@ -48,6 +53,7 @@ namespace ZzZomboRW
 			map.GetComponent<MapComponent_Cage>().cages.AddDistinct(this);
 			if(!this.changedTerrain)
 			{
+				this.SetForPrisoners(true);
 				foreach(var c in this.OccupiedRect())
 				{
 					this.Map.terrainGrid.SetTerrain(c, this.def.building.naturalTerrain ?? TerrainDefOf.WoodPlankFloor);
@@ -56,8 +62,7 @@ namespace ZzZomboRW
 		}
 		public override void DeSpawn(DestroyMode mode = DestroyMode.Vanish)
 		{
-			base.DeSpawn(mode);
-			this.Map.GetComponent<MapComponent_Cage>().cages.Remove(this);
+			this.Map.GetComponent<MapComponent_Cage>()?.cages.Remove(this);
 			if(mode is DestroyMode.Deconstruct)
 			{
 				foreach(var c in this.OccupiedRect())
@@ -69,7 +74,9 @@ namespace ZzZomboRW
 				}
 			}
 			this.changedTerrain = false;
+			base.DeSpawn(mode);
 		}
+		public override ushort PathFindCostFor(Pawn p) => this.pathCost;
 		//public override bool BlocksPawn(Pawn p)
 		//{
 		//	if(base.BlocksPawn(p))
@@ -79,7 +86,7 @@ namespace ZzZomboRW
 		//	var comp = this.GetComp<CompAssignableToPawn_Cage>();
 		//	if(!(comp is null))
 		//	{
-		//		var area = new Area_Cage();
+		//		var area = new Area_Cage(this.Map.areaManager);
 		//		foreach(var c in this.OccupiedRect())
 		//		{
 		//			area[c] = true;
@@ -88,7 +95,36 @@ namespace ZzZomboRW
 		//	}
 		//	return false;
 		//}
-		public override void ExposeData()
+		public override IEnumerable<Gizmo> GetGizmos()
+		{
+			foreach(var gizmo in base.GetGizmos())
+			{
+				if(gizmo is Command command && command.defaultLabel != "CommandBedSetForPrisonersLabel".Translate() &&
+					command.defaultLabel != "CommandBedSetAsMedicalLabel".Translate())
+				{
+					yield return gizmo;
+				}
+			}
+			var command_Toggle = new Command_Toggle
+			{
+				defaultLabel = "CommandBedSetForPrisonersLabel".Translate(),
+				defaultDesc = "CommandBedSetForPrisonersDesc".Translate(),
+				icon = ContentFinder<Texture2D>.Get("UI/Commands/ForPrisoners", true),
+				isActive = () => this.ForPrisoners,
+				toggleAction = delegate ()
+				{
+					var value = !this.ForPrisoners;
+					(value ? SoundDefOf.Checkbox_TurnedOn : SoundDefOf.Checkbox_TurnedOff).PlayOneShotOnCamera(null);
+					this.SetForPrisoners(value);
+				},
+				hotKey = KeyBindingDefOf.Misc3,
+				turnOffSound = null,
+				turnOnSound = null
+			};
+			yield return command_Toggle;
+			yield break;
+		}
+		public void SetForPrisoners(bool value) => Traverse.Create((Building_Bed)this).Field("forPrisonersInt").SetValue(value); public override void ExposeData()
 		{
 			base.ExposeData();
 			Scribe_Values.Look(ref this.changedTerrain, "changedTerrain", true);
@@ -96,6 +132,7 @@ namespace ZzZomboRW
 	}
 	public class Area_Cage: Area
 	{
+		public Area_Cage(AreaManager areaManager) : base(areaManager) { }
 		public override string GetUniqueLoadID() => string.Concat(new object[]
 		{
 			"ZzZomboRW_AnimalCage_",
@@ -107,33 +144,11 @@ namespace ZzZomboRW
 	}
 	public class CompAssignableToPawn_Cage: CompAssignableToPawn_Bed
 	{
-		public static bool HasFreeCagesFor(Pawn pawn) => pawn.Map.GetComponent<MapComponent_Cage>().
-			HasFreeCagesFor(pawn);
-		public static Building_Bed FindCageFor(Pawn pawn, bool onlyIfInside = true)
-		{
-			foreach(var cage in pawn.Map.GetComponent<MapComponent_Cage>().cages)
-			{
-				var comp = cage.GetComp<CompAssignableToPawn_Cage>();
-				if(comp != null)
-				{
-					if(cage.GetAssignedPawns().Contains(pawn) && comp.HasFreeSlot &&
-						(!onlyIfInside || cage.OccupiedRect().Contains(pawn.Position)))
-					{
-						return cage;
-					}
-				}
-			}
-			return null;
-		}
+		public static bool HasFreeCagesFor(Pawn pawn) => pawn?.MapHeld?.GetComponent<MapComponent_Cage>()?.
+			HasFreeCagesFor(pawn) is true;
+		public static Building_Bed FindCageFor(Pawn pawn, bool onlyIfInside = true) => pawn?.MapHeld?.
+			GetComponent<MapComponent_Cage>()?.FindCageFor(pawn, onlyIfInside);
 
-		public override void Initialize(CompProperties props)
-		{
-			base.Initialize(props);
-			if(this.parent is Building_Bed cage)
-			{
-				cage.ForPrisoners = true;
-			}
-		}
 		public override IEnumerable<Pawn> AssigningCandidates
 		{
 			get
@@ -141,13 +156,17 @@ namespace ZzZomboRW
 				var bed = this.parent as Building_Bed;
 				return !(bed?.Spawned is true)
 					? Enumerable.Empty<Pawn>()
-					: this.parent.Map.mapPawns.AllPawns.FindAll(pawn =>
+					: this.parent.Map.mapPawns.AllPawnsSpawned.FindAll(pawn =>
 						pawn.BodySize <= this.parent.def.building.bed_maxBodySize &&
-						pawn.AnimalOrWildMan() == this.parent.def.building.bed_humanlike &&
-						pawn.Faction == bed.Faction ^ bed.ForPrisoners);
+						pawn.AnimalOrWildMan() != this.parent.def.building.bed_humanlike &&
+						pawn.Faction == bed.Faction != bed.ForPrisoners);
 			}
 		}
-		protected override bool ShouldShowAssignmentGizmo() => true;
+		public override bool AssignedAnything(Pawn pawn)
+		{
+			return pawn.ownership?.OwnedBed != null;
+		}
+		protected override bool ShouldShowAssignmentGizmo() => this.parent.Faction == Faction.OfPlayer;
 		public override void TryAssignPawn(Pawn pawn)
 		{
 			if(pawn.ownership == null)
@@ -171,22 +190,27 @@ namespace ZzZomboRW
 		}
 		public override bool ShouldSkip(Pawn pawn, bool forced = false)
 		{
-			return !pawn.Map.mapPawns.AllPawnsSpawned.Any(p => p.Downed && !p.InBed());
+			Log.Message($"[ShouldSkip] Cages: {pawn.Map.GetComponent<MapComponent_Cage>()?.cages?.Count}.");
+			return !pawn.Map.mapPawns.AllPawnsSpawned.Any(p => p.Downed &&
+				CompAssignableToPawn_Cage.FindCageFor(p) is null);
 		}
 		public override bool HasJobOnThing(Pawn pawn, Thing t, bool forced = false)
 		{
-			return t is Pawn target && target.Downed && !target.InBed() &&
+			Log.Message($"Cages: {pawn.Map.GetComponent<MapComponent_Cage>()?.cages?.Count}.");
+			return t is Pawn target && target.Downed &&
+				target.Map == pawn.Map &&
 				CompAssignableToPawn_Cage.HasFreeCagesFor(target) &&
 				CompAssignableToPawn_Cage.FindCageFor(target) is null &&
-				pawn.CanReserve(target, ignoreOtherReservations: forced) && !GenAI.EnemyIsNear(target, 40f);
+				pawn.CanReserve(target, ignoreOtherReservations: forced);
 		}
 
 		public override Job JobOnThing(Pawn pawn, Thing t, bool forced = false)
 		{
 			if(t is Pawn victim)
 			{
-				var cage = CompAssignableToPawn_Cage.FindCageFor(victim, false);
-				if(cage is null)
+				Log.Message($"[JobOnThing] Cages: {pawn.Map.GetComponent<MapComponent_Cage>()?.cages?.Count}.");
+				var cage = CompAssignableToPawn_Cage.FindCageFor(victim) ?? CompAssignableToPawn_Cage.FindCageFor(victim, false);
+				if(cage is null || cage.Map != victim.Map)
 				{
 					return null;
 				}
@@ -252,8 +276,12 @@ namespace ZzZomboRW
 							target.jobs.Notify_TuckedIntoBed(cage);
 							target.mindState.Notify_TuckedIntoBed();
 							var comp = cage.GetComp<CompAssignableToPawn_Cage>();
-							target.mindState.duty = new PawnDuty(DefDatabase<DutyDef>.GetNamed("ZzZomboRW_AnimalCage_BeingHelpCaptive"),
-								cage);
+							var duty = new PawnDuty(DefDatabase<DutyDef>.GetNamed("ZzZomboRW_AnimalCage_BeingHelpCaptive"),
+								cage)
+							{
+								attackDownedIfStarving = true
+							};
+							target.mindState.duty = duty;
 						}
 					}
 					if(target.IsPrisonerOfColony)
@@ -311,21 +339,23 @@ namespace ZzZomboRW
 			static HarmonyHelper()
 			{
 				var harmony = new Harmony($"ZzZomboRW.{MOD.NAME}");
+				Harmony.DEBUG = true;
 				harmony.PatchAll();
 			}
-
-			[HarmonyPatch(typeof(Reachability), nameof(Reachability.CanReach), Priority.Last)]
+			[HarmonyPriority(Priority.Last)]
+			[HarmonyPatch(typeof(Reachability), nameof(Reachability.CanReach), new Type[] { typeof(IntVec3),
+				typeof(LocalTargetInfo), typeof(PathEndMode), typeof(TraverseParms) })]
 			public static class Reachability_CanReachPatch
 			{
-				private static void Postfix(ref bool __result, Reachability __instance, IntVec3 start, LocalTargetInfo dest,
+				private static void Postfix(ref bool __result, IntVec3 start, LocalTargetInfo dest,
 					PathEndMode peMode, TraverseParms traverseParams)
 				{
 					var pawn = traverseParams.pawn;
-					if(__result && CompAssignableToPawn_Cage.FindCageFor(pawn) is null)
+					if(!__result || CompAssignableToPawn_Cage.FindCageFor(pawn) is null)
 					{
 						return;
 					}
-					if(peMode == PathEndMode.Touch && TouchPathEndModeUtility.
+					if((peMode == PathEndMode.Touch || peMode == PathEndMode.ClosestTouch) && TouchPathEndModeUtility.
 						IsAdjacentOrInsideAndAllowedToTouch(pawn.Position, dest, pawn.Map))
 					{
 						return;
@@ -334,7 +364,25 @@ namespace ZzZomboRW
 				}
 			}
 
-			[HarmonyPatch(typeof(RegionCostCalculator), "PathableNeighborIndices", Priority.Last)]
+			//[HarmonyPatch(typeof(Pawn_PathFollower), "SetupMoveIntoNextCell", Priority.Last)]
+			//public static class RegionCostCalculator_SetupMoveIntoNextCellPatch
+			//{
+			//	private static void Postfix(Pawn_PathFollower __instance)
+			//	{
+			//		var pawn = new Traverse(__instance).Field("pawn").GetValue<Pawn>();
+			//		var dest = new Traverse(__instance).Field("destination").GetValue<LocalTargetInfo>();
+			//		var map = pawn.Map;
+			//		Log.Warning($"[RegionCostCalculator_PathableNeighborIndicesPatch] {pawn}).");
+			//		var cage1 = PathFinder_FindPathPatch.CageOnCell(pawn.Position, map);
+			//		var cage2 = PathFinder_FindPathPatch.CageOnCell(dest.Cell, map);
+			//		if(__instance.curPath.NodesLeftCount <= 1 && cage1 != cage2)
+			//		{
+			//			__instance.GenerateNewPath();
+			//		}
+			//	}
+			//}	  
+
+			[HarmonyPatch(typeof(RegionCostCalculator), "PreciseRegionLinkDistancesNeighborsGetter", Priority.Last)]
 			public static class RegionCostCalculator_PathableNeighborIndicesPatch
 			{
 				private static (Building_Bed, IntVec3) CageOnCell(int index, Map map)
@@ -351,14 +399,20 @@ namespace ZzZomboRW
 					}
 					return (null, cell);
 				}
-				private static void Postfix(ref List<int> __result, RegionCostCalculator __instance, int index)
+				private static void Postfix(ref IEnumerable<int> __result, RegionCostCalculator __instance, int node, Region region)
 				{
 					var map = new Traverse(__instance).Field("map").GetValue<Map>();
-					var (cage1, cell1) = CageOnCell(index, map);
+					Log.Warning($"[RegionCostCalculator_PathableNeighborIndicesPatch] {__instance}, {map}, {__result}).", true);
+					if(__result is null)
+					{
+						return;
+					}
+					var (cage1, cell1) = CageOnCell(node, map);
 					var result = new List<int>(8);
 					foreach(var idx in __result)
 					{
 						var (cage2, cell2) = CageOnCell(idx, map);
+						Log.Warning($"[RegionCostCalculator_PathableNeighborIndicesPatch] start: {cell1} ({cage1}), end: {cell2} ({cage2}).", true);
 						if(cage1 == cage2)
 						{
 							result.Add(idx);
@@ -379,6 +433,124 @@ namespace ZzZomboRW
 						}
 					}
 					__result = result;
+				}
+			}
+
+			[HarmonyPriority(Priority.Last)]
+			[HarmonyPatch(typeof(PathFinder), nameof(PathFinder.FindPath), new Type[] { typeof(IntVec3),
+				typeof(LocalTargetInfo), typeof(TraverseParms), typeof(PathEndMode) })]
+			public static class PathFinder_FindPathPatch
+			{
+				private static bool fromPatch = false;
+				public static Building_Bed CageOnCell(IntVec3 cell, Map map)
+				{
+					var building = cell.GetEdifice(map);
+					if(building is Building_Bed cage)
+					{
+						var comp = cage.GetComp<CompAssignableToPawn_Cage>();
+						if(!(comp is null))
+						{
+							return cage;
+						}
+					}
+					return null;
+				}
+				private static void Prefix(PathFinder __instance, ref (bool?, Building_Bed, LocalTargetInfo, Building_Bed) __state,
+					Map ___map, IntVec3 start, ref LocalTargetInfo dest, TraverseParms traverseParms, PathEndMode peMode)
+				{
+					if(fromPatch)
+					{
+						return;
+					}
+					var map = ___map;
+					var cage1 = CageOnCell(start, map);
+					var cage2 = CageOnCell(dest.Cell, map);
+					if(cage1 == cage2)
+					{
+						Log.Message($"[PF (prefix)] `{cage1}`==`{cage2}`, returning.");
+						if(cage1 is Building_Cage _cage)
+						{
+							_cage.pathCost = 0;
+							__state = (null, cage1, dest, cage1);
+						}
+						return;
+					}
+					var cage = cage1 ?? cage2;
+					var movingInside = cage == cage2;
+					Log.Message($"[PF (prefix)] `{cage1}`!=`{cage2}`, moving inside={movingInside}.");
+					ushort PFcost(Building_Cage testcage)
+					{
+						if(testcage == cage)
+						{
+							return (ushort)(movingInside ? 8000 : 0);
+						}
+						else
+						{
+							return (ushort)(movingInside ? 0 : 8000);
+						}
+					}
+					if(cage1 is Building_Cage __cage)
+					{
+						__cage.pathCost = PFcost(__cage);
+					}
+					if(cage2 is Building_Cage ___cage)
+					{
+						___cage.pathCost = PFcost(___cage);
+					}
+					__state = (movingInside, cage, dest, cage1 ?? cage2);
+					dest = new LocalTargetInfo(movingInside ? cage.InteractionCell : cage.InteractionCell.ClampInsideRect(
+						cage.OccupiedRect()));
+				}
+				private static void Postfix(ref PawnPath __result, PathFinder __instance, ref
+					(bool?, Building_Bed, LocalTargetInfo, Building_Bed) __state,
+					IntVec3 start, ref LocalTargetInfo dest, TraverseParms traverseParms, PathEndMode peMode)
+				{
+					var cage = __state.Item2;
+					var cageAndBed = cage as Building_Cage;
+					if(fromPatch || __state.Item1 is null)
+					{
+						Log.Message($"[PF (postifx)] `{cage}`, path cost=`{cageAndBed?.pathCost}`, moving inside=`{__state.Item1}`.");
+						if(cageAndBed != null)
+						{
+							cageAndBed.pathCost = 8000;
+						}
+						return;
+					}
+					var movingInside = (bool)__state.Item1;
+					var spot = cage.InteractionCell;
+					dest = __state.Item3;
+					Log.Message($"[PF (postifx)] `{start}`=`{spot}`, moving inside=`{movingInside}`.");
+					if(cageAndBed != null)
+					{
+						cageAndBed.pathCost = (ushort)(movingInside ? 0 : 8000);
+					}
+					fromPatch = true;
+					var path = __instance.FindPath(movingInside ? spot.ClampInsideRect(cage.OccupiedRect()) : spot, dest,
+						traverseParms, peMode);
+					fromPatch = false;
+					if(cageAndBed != null)
+					{
+						cageAndBed.pathCost = 8000;
+					}
+					if(__state.Item4 is Building_Cage __cage)
+					{
+						__cage.pathCost = 8000;
+					}
+					var field = new Traverse(__result).Field("nodes");
+					var nodes = field.GetValue<List<IntVec3>>();
+					var nodes2 = new Traverse(path).Field("nodes").GetValue<List<IntVec3>>();
+					nodes2.Reverse();
+					var sb = new System.Text.StringBuilder();
+					foreach(var node in nodes2)
+					{
+						sb.Append($"\t{node};\n");
+						nodes.Insert(0, node);
+					}
+					Log.Message($"[{typeof(PathFinder_FindPathPatch).FullName}] Appending {nodes2.Count()} new nodes:\n{sb}");
+					field.SetValue(nodes);
+					field = new Traverse(__result).Field("curNodeIndex");
+					field.SetValue(field.GetValue<int>() + nodes2.Count());
+					path.ReleaseToPool();
 				}
 			}
 
@@ -477,19 +649,22 @@ namespace ZzZomboRW
 			return availableNutrition + 0.5f >= wantedNutrition;
 		}
 	}
-	public class ThinkNode_ConditionalInsideCage: ThinkNode_Conditional
+	public class ThinkNode_ConditionalInsideCage: ThinkNode_Priority
 	{
+		public bool invert;
 		public override ThinkResult TryIssueJobPackage(Pawn pawn, JobIssueParams jobParams)
 		{
 			try
 			{
 				if(pawn.mindState.duty?.focus.HasThing is true)
 				{
-					if(this.Satisfied(pawn) ^ this.invert)
+					var success = pawn.mindState.duty?.focus.HasThing is true &&
+						pawn.Position.IsInside(pawn.mindState.duty.focus.Thing);
+					if(success != this.invert)
 					{
 						var area = pawn.mindState.duty.focus.Thing.OccupiedRect();
 						pawn.mindState.maxDistToSquadFlag = Math.Max(area.Width / 2, area.Height / 2);
-						return ((ThinkNode_Conditional)this).TryIssueJobPackage(pawn, jobParams);
+						return base.TryIssueJobPackage(pawn, jobParams);
 					}
 					else
 					{
@@ -503,10 +678,6 @@ namespace ZzZomboRW
 				pawn.mindState.maxDistToSquadFlag = -1f;
 			}
 			return ThinkResult.NoJob;
-		}
-		protected override bool Satisfied(Pawn pawn)
-		{
-			return pawn.mindState.duty?.focus.HasThing is true && pawn.Position.IsInside(pawn.mindState.duty.focus.Thing);
 		}
 	}
 	//public class CompProperties_X: CompProperties
