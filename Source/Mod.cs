@@ -402,7 +402,7 @@ namespace ZzZomboRW
 				private static void Postfix(ref IEnumerable<int> __result, RegionCostCalculator __instance, int node, Region region)
 				{
 					var map = new Traverse(__instance).Field("map").GetValue<Map>();
-					Log.Warning($"[RegionCostCalculator_PathableNeighborIndicesPatch] {__instance}, {map}, {__result}).", true);
+					//Log.Warning($"[RegionCostCalculator_PathableNeighborIndicesPatch] {__instance}, {map}, {__result}).", true);
 					if(__result is null)
 					{
 						return;
@@ -412,23 +412,30 @@ namespace ZzZomboRW
 					foreach(var idx in __result)
 					{
 						var (cage2, cell2) = CageOnCell(idx, map);
-						Log.Warning($"[RegionCostCalculator_PathableNeighborIndicesPatch] start: {cell1} ({cage1}), end: {cell2} ({cage2}).", true);
+						//Log.Warning($"[RegionCostCalculator_PathableNeighborIndicesPatch] start: {cell1} ({cage1}), end: {cell2} ({cage2}).", true);
 						if(cage1 == cage2)
 						{
 							result.Add(idx);
 						}
-						else if(cage1 is null)
+						else
 						{
-							if(cage2.InteractionCell.Equals(cell1))
+							if(cage1 != null)
 							{
-								result.Add(idx);
+								var spot = cage1.InteractionCell.ClampInsideRect(cage1.OccupiedRect());
+								if(cell1 == spot && cell2 == cage1.InteractionCell ||
+									cell2 == spot && cell1 == cage1.InteractionCell)
+								{
+									result.Add(idx);
+								}
 							}
-						}
-						else if(cage2 is null)
-						{
-							if(cage1.InteractionCell.Equals(cell2))
+							else
 							{
-								result.Add(idx);
+								var spot = cage2.InteractionCell.ClampInsideRect(cage2.OccupiedRect());
+								if(cell1 == spot && cell2 == cage1.InteractionCell ||
+									cell2 == spot && cell1 == cage1.InteractionCell)
+								{
+									result.Add(idx);
+								}
 							}
 						}
 					}
@@ -441,7 +448,6 @@ namespace ZzZomboRW
 				typeof(LocalTargetInfo), typeof(TraverseParms), typeof(PathEndMode) })]
 			public static class PathFinder_FindPathPatch
 			{
-				private static bool fromPatch = false;
 				public static Building_Bed CageOnCell(IntVec3 cell, Map map)
 				{
 					var building = cell.GetEdifice(map);
@@ -455,102 +461,56 @@ namespace ZzZomboRW
 					}
 					return null;
 				}
-				private static void Prefix(PathFinder __instance, ref (bool?, Building_Bed, LocalTargetInfo, Building_Bed) __state,
+				private static void Prefix(PathFinder __instance, ref Building_Cage[] __state,
 					Map ___map, IntVec3 start, ref LocalTargetInfo dest, TraverseParms traverseParms, PathEndMode peMode)
 				{
-					if(fromPatch)
-					{
-						return;
-					}
 					var map = ___map;
 					var cage1 = CageOnCell(start, map);
 					var cage2 = CageOnCell(dest.Cell, map);
 					if(cage1 == cage2)
 					{
-						Log.Message($"[PF (prefix)] `{cage1}`==`{cage2}`, returning.");
+						//Log.Message($"[PF (prefix)] `{cage1}`==`{cage2}`, returning.");
 						if(cage1 is Building_Cage _cage)
 						{
 							_cage.pathCost = 0;
-							__state = (null, cage1, dest, cage1);
 						}
 						return;
 					}
-					var cage = cage1 ?? cage2;
-					var movingInside = cage == cage2;
-					Log.Message($"[PF (prefix)] `{cage1}`!=`{cage2}`, moving inside={movingInside}.");
-					ushort PFcost(Building_Cage testcage)
+					//Log.Message($"[PF (prefix)] `{cage1}`!=`{cage2}`.");
+					__state = new Building_Cage[] { cage1 as Building_Cage, cage2 as Building_Cage };
+					if(cage1 != null)
 					{
-						if(testcage == cage)
+						var spot = cage1.InteractionCell.ClampInsideRect(cage1.OccupiedRect());
+						//var s = $"[PF (prefix)] `{cage1}`!=`{cage2}`, start={start}, dest={dest}, spot1={spot}, spot2=";
+						dest = start == spot ? cage1.InteractionCell : (LocalTargetInfo)spot;
+						//s += $"{dest}.";
+						//Log.Message(s);
+						if(cage1 is Building_Cage _cage)
 						{
-							return (ushort)(movingInside ? 8000 : 0);
+							_cage.pathCost = 0;
 						}
-						else
+					}
+					else
+					{
+						var spot = cage2.InteractionCell;
+						dest = start == spot ? (LocalTargetInfo)spot : spot.ClampInsideRect(cage2.OccupiedRect());
+						if(cage2 is Building_Cage _cage)
 						{
-							return (ushort)(movingInside ? 0 : 8000);
+							_cage.pathCost = 8000;
 						}
 					}
-					if(cage1 is Building_Cage __cage)
-					{
-						__cage.pathCost = PFcost(__cage);
-					}
-					if(cage2 is Building_Cage ___cage)
-					{
-						___cage.pathCost = PFcost(___cage);
-					}
-					__state = (movingInside, cage, dest, cage1 ?? cage2);
-					dest = new LocalTargetInfo(movingInside ? cage.InteractionCell : cage.InteractionCell.ClampInsideRect(
-						cage.OccupiedRect()));
 				}
-				private static void Postfix(ref PawnPath __result, PathFinder __instance, ref
-					(bool?, Building_Bed, LocalTargetInfo, Building_Bed) __state,
-					IntVec3 start, ref LocalTargetInfo dest, TraverseParms traverseParms, PathEndMode peMode)
+				private static void Postfix(PawnPath __result, PathFinder __instance, ref
+					Building_Cage[] __state, IntVec3 start, LocalTargetInfo dest, TraverseParms traverseParms, PathEndMode peMode)
 				{
-					var cage = __state.Item2;
-					var cageAndBed = cage as Building_Cage;
-					if(fromPatch || __state.Item1 is null)
+					Log.Message($"[PF (postfix)] result={__result}.");
+					foreach(var cage in __state ?? Array.Empty<Building_Cage>())
 					{
-						Log.Message($"[PF (postifx)] `{cage}`, path cost=`{cageAndBed?.pathCost}`, moving inside=`{__state.Item1}`.");
-						if(cageAndBed != null)
+						if(cage != null)
 						{
-							cageAndBed.pathCost = 8000;
+							cage.pathCost = 8000;
 						}
-						return;
 					}
-					var movingInside = (bool)__state.Item1;
-					var spot = cage.InteractionCell;
-					dest = __state.Item3;
-					Log.Message($"[PF (postifx)] `{start}`=`{spot}`, moving inside=`{movingInside}`.");
-					if(cageAndBed != null)
-					{
-						cageAndBed.pathCost = (ushort)(movingInside ? 0 : 8000);
-					}
-					fromPatch = true;
-					var path = __instance.FindPath(movingInside ? spot.ClampInsideRect(cage.OccupiedRect()) : spot, dest,
-						traverseParms, peMode);
-					fromPatch = false;
-					if(cageAndBed != null)
-					{
-						cageAndBed.pathCost = 8000;
-					}
-					if(__state.Item4 is Building_Cage __cage)
-					{
-						__cage.pathCost = 8000;
-					}
-					var field = new Traverse(__result).Field("nodes");
-					var nodes = field.GetValue<List<IntVec3>>();
-					var nodes2 = new Traverse(path).Field("nodes").GetValue<List<IntVec3>>();
-					nodes2.Reverse();
-					var sb = new System.Text.StringBuilder();
-					foreach(var node in nodes2)
-					{
-						sb.Append($"\t{node};\n");
-						nodes.Insert(0, node);
-					}
-					Log.Message($"[{typeof(PathFinder_FindPathPatch).FullName}] Appending {nodes2.Count()} new nodes:\n{sb}");
-					field.SetValue(nodes);
-					field = new Traverse(__result).Field("curNodeIndex");
-					field.SetValue(field.GetValue<int>() + nodes2.Count());
-					path.ReleaseToPool();
 				}
 			}
 
