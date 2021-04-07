@@ -206,14 +206,14 @@
 						</li>
 					</subNodes>
 				</li>
-				<!-- <li Class="ZzZomboRW.ThinkNode_ConditionalInsideCage">
+				<li Class="ZzZomboRW.ThinkNode_ConditionalInsideCage">
 					<invert>true</invert>
 					<subNodes>
 						<li Class="ZzZomboRW.ThinkNode_Duty">
 							<dutyDef>ExitMapBestAndDefendSelf</dutyDef>
 						</li>
 					</subNodes>
-				</li> -->
+				</li>
 			</subNodes>
 		</thinkNode>
 		<constantThinkNode Class="ThinkNode_Priority">

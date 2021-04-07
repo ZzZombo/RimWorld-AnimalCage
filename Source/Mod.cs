@@ -19,21 +19,22 @@ namespace ZzZomboRW
 {
 	public class MapComponent_Cage: MapComponent
 	{
-		public List<Building_Bed> cages;
-		public MapComponent_Cage(Map map) : base(map)
+		public List<Building> cages = new List<Building>(0);
+		public MapComponent_Cage(Map map) : base(map) { }
+		public bool HasFreeCagesFor(Pawn target) => this.FindCageFor(target, false) != null;
+		public Building FindCageFor(Pawn pawn, bool onlyIfInside = true)
 		{
-			this.cages = new List<Building_Bed>(0);
-		}
-		public bool HasFreeCagesFor(Pawn target) => this.FindCageFor(target) != null;
-		public Building_Bed FindCageFor(Pawn pawn, bool onlyIfInside = true)
-		{
+			if(pawn is null)
+			{
+				return null;
+			}
 			foreach(var cage in this.cages)
 			{
 				var comp = cage?.GetComp<CompAssignableToPawn_Cage>();
 				if(comp != null)
 				{
 					if(comp.AssignedPawnsForReading.Contains(pawn) &&
-						(!onlyIfInside && comp.HasFreeSlot || pawn.Position.IsInside(cage)))
+						(!onlyIfInside || pawn.Position.IsInside(cage)))
 					{
 						return cage;
 					}
@@ -42,15 +43,16 @@ namespace ZzZomboRW
 			return null;
 		}
 	}
-	public class Building_Cage: Building_Bed
+	public class Building_Cage: Building
 	{
 		private bool changedTerrain = false;
+		public bool forPrisoners = false;
 		public ushort pathCost = 8000;
 		//TODO: patch `GenConstruct.TerrainCanSupport()` to disallow changing floor under cages.
 		public override void SpawnSetup(Map map, bool respawningAfterLoad)
 		{
 			base.SpawnSetup(map, respawningAfterLoad);
-			map.GetComponent<MapComponent_Cage>().cages.AddDistinct(this);
+			map.GetComponent<MapComponent_Cage>()?.cages?.AddDistinct(this);
 			if(!this.changedTerrain)
 			{
 				this.SetForPrisoners(true);
@@ -62,7 +64,7 @@ namespace ZzZomboRW
 		}
 		public override void DeSpawn(DestroyMode mode = DestroyMode.Vanish)
 		{
-			this.Map.GetComponent<MapComponent_Cage>()?.cages.Remove(this);
+			this.Map.GetComponent<MapComponent_Cage>()?.cages?.Remove(this);
 			if(mode is DestroyMode.Deconstruct)
 			{
 				foreach(var c in this.OccupiedRect())
@@ -77,43 +79,21 @@ namespace ZzZomboRW
 			base.DeSpawn(mode);
 		}
 		public override ushort PathFindCostFor(Pawn p) => this.pathCost;
-		//public override bool BlocksPawn(Pawn p)
-		//{
-		//	if(base.BlocksPawn(p))
-		//	{
-		//		return true;
-		//	}
-		//	var comp = this.GetComp<CompAssignableToPawn_Cage>();
-		//	if(!(comp is null))
-		//	{
-		//		var area = new Area_Cage(this.Map.areaManager);
-		//		foreach(var c in this.OccupiedRect())
-		//		{
-		//			area[c] = true;
-		//		}
-		//		return !p.Position.IsInside(this) || p.CurJob?.AnyTargetOutsideArea(area) is false;
-		//	}
-		//	return false;
-		//}
 		public override IEnumerable<Gizmo> GetGizmos()
 		{
 			foreach(var gizmo in base.GetGizmos())
 			{
-				if(gizmo is Command command && command.defaultLabel != "CommandBedSetForPrisonersLabel".Translate() &&
-					command.defaultLabel != "CommandBedSetAsMedicalLabel".Translate())
-				{
-					yield return gizmo;
-				}
+				yield return gizmo;
 			}
 			var command_Toggle = new Command_Toggle
 			{
 				defaultLabel = "CommandBedSetForPrisonersLabel".Translate(),
 				defaultDesc = "CommandBedSetForPrisonersDesc".Translate(),
 				icon = ContentFinder<Texture2D>.Get("UI/Commands/ForPrisoners", true),
-				isActive = () => this.ForPrisoners,
+				isActive = () => this.forPrisoners,
 				toggleAction = delegate ()
 				{
-					var value = !this.ForPrisoners;
+					var value = !this.forPrisoners;
 					(value ? SoundDefOf.Checkbox_TurnedOn : SoundDefOf.Checkbox_TurnedOff).PlayOneShotOnCamera(null);
 					this.SetForPrisoners(value);
 				},
@@ -124,10 +104,12 @@ namespace ZzZomboRW
 			yield return command_Toggle;
 			yield break;
 		}
-		public void SetForPrisoners(bool value) => Traverse.Create((Building_Bed)this).Field("forPrisonersInt").SetValue(value); public override void ExposeData()
+		public void SetForPrisoners(bool value) => forPrisoners = value;
+		public override void ExposeData()
 		{
 			base.ExposeData();
 			Scribe_Values.Look(ref this.changedTerrain, "changedTerrain", true);
+			Scribe_Values.Look(ref this.changedTerrain, "forPrisoners", true);
 		}
 	}
 	public class Area_Cage: Area
@@ -142,36 +124,34 @@ namespace ZzZomboRW
 		public override Color Color => SimpleColor.White.ToUnityColor();
 		public override int ListPriority => 0;
 	}
-	public class CompAssignableToPawn_Cage: CompAssignableToPawn_Bed
+	public class CompAssignableToPawn_Cage: CompAssignableToPawn
 	{
 		public static bool HasFreeCagesFor(Pawn pawn) => pawn?.MapHeld?.GetComponent<MapComponent_Cage>()?.
 			HasFreeCagesFor(pawn) is true;
-		public static Building_Bed FindCageFor(Pawn pawn, bool onlyIfInside = true) => pawn?.MapHeld?.
+		public static Building FindCageFor(Pawn pawn, bool onlyIfInside = true) => pawn?.MapHeld?.
 			GetComponent<MapComponent_Cage>()?.FindCageFor(pawn, onlyIfInside);
 
 		public override IEnumerable<Pawn> AssigningCandidates
 		{
 			get
 			{
-				var bed = this.parent as Building_Bed;
+				var bed = this.parent as Building_Cage;
 				return !(bed?.Spawned is true)
 					? Enumerable.Empty<Pawn>()
 					: this.parent.Map.mapPawns.AllPawnsSpawned.FindAll(pawn =>
 						pawn.BodySize <= this.parent.def.building.bed_maxBodySize &&
 						pawn.AnimalOrWildMan() != this.parent.def.building.bed_humanlike &&
-						pawn.Faction == bed.Faction != bed.ForPrisoners);
+						pawn.Faction == bed.Faction != bed.forPrisoners);
 			}
 		}
-		public override bool AssignedAnything(Pawn pawn)
+		protected override void SortAssignedPawns()
 		{
-			return pawn.ownership?.OwnedBed != null;
 		}
-		protected override bool ShouldShowAssignmentGizmo() => this.parent.Faction == Faction.OfPlayer;
 		public override void TryAssignPawn(Pawn pawn)
 		{
-			if(pawn.ownership == null)
+			if(!this.HasFreeSlot)
 			{
-				pawn.ownership = new Pawn_Ownership(pawn);
+				this.TryUnassignPawn(this.AssignedPawnsForReading[0]);
 			}
 			base.TryAssignPawn(pawn);
 		}
@@ -190,13 +170,14 @@ namespace ZzZomboRW
 		}
 		public override bool ShouldSkip(Pawn pawn, bool forced = false)
 		{
-			Log.Message($"[ShouldSkip] Cages: {pawn.Map.GetComponent<MapComponent_Cage>()?.cages?.Count}.");
+			//Log.Message($"[WorkGiver_RescueToCage.ShouldSkip] {pawn}, {!pawn.Map.mapPawns.AllPawnsSpawned.Any(p => p.Downed && CompAssignableToPawn_Cage.FindCageFor(p) is null)}.");
 			return !pawn.Map.mapPawns.AllPawnsSpawned.Any(p => p.Downed &&
 				CompAssignableToPawn_Cage.FindCageFor(p) is null);
 		}
 		public override bool HasJobOnThing(Pawn pawn, Thing t, bool forced = false)
 		{
-			Log.Message($"Cages: {pawn.Map.GetComponent<MapComponent_Cage>()?.cages?.Count}.");
+			//var _t = t as Pawn;
+			//Log.Message($"[WorkGiver_RescueToCage.HasJobOnThing] {pawn}, {_t}, {_t?.Downed}, {CompAssignableToPawn_Cage.HasFreeCagesFor(_t)}, {CompAssignableToPawn_Cage.FindCageFor(_t)}, {pawn.CanReserve(_t, ignoreOtherReservations: forced)}.");
 			return t is Pawn target && target.Downed &&
 				target.Map == pawn.Map &&
 				CompAssignableToPawn_Cage.HasFreeCagesFor(target) &&
@@ -208,7 +189,7 @@ namespace ZzZomboRW
 		{
 			if(t is Pawn victim)
 			{
-				Log.Message($"[JobOnThing] Cages: {pawn.Map.GetComponent<MapComponent_Cage>()?.cages?.Count}.");
+				//Log.Message($"[WorkGiver_RescueToCage.JobOnThing] {pawn}, {t}, {CompAssignableToPawn_Cage.FindCageFor(victim)}, {CompAssignableToPawn_Cage.FindCageFor(victim, false)}.");
 				var cage = CompAssignableToPawn_Cage.FindCageFor(victim) ?? CompAssignableToPawn_Cage.FindCageFor(victim, false);
 				if(cage is null || cage.Map != victim.Map)
 				{
@@ -223,59 +204,60 @@ namespace ZzZomboRW
 	}
 	public class JobDriver_TakeToCage: JobDriver_TakeToBed
 	{
+		protected Building_Cage Cage
+		{
+			get
+			{
+				return (Building_Cage)this.job.GetTarget(TargetIndex.B).Thing;
+			}
+		}
+		public override bool TryMakePreToilReservations(bool errorOnFailed)
+		{
+			return this.pawn.Reserve(this.Takee, this.job, 1, -1, null, errorOnFailed);
+		}
 		protected override IEnumerable<Toil> MakeNewToils()
 		{
 			this.FailOnDestroyedOrNull(TargetIndex.A).
 				FailOnDestroyedOrNull(TargetIndex.B).
 				FailOnAggroMentalStateAndHostile(TargetIndex.A).
 				FailOn(delegate ()
-			{
-				if(!this.DropBed.OwnersForReading.Contains(this.Takee))
 				{
-					return true;
-				}
-				if(this.job.def.makeTargetPrisoner)
-				{
-					if(!this.DropBed.ForPrisoners)
-					{
-						return true;
-					}
-				}
-				else if(this.DropBed.ForPrisoners != this.Takee.IsPrisoner)
-				{
-					return true;
-				}
-				return false;
-			});
-			//yield return Toils_Bed.ClaimBedIfNonMedical(TargetIndex.B, TargetIndex.A);
+					var cage = this.Cage;
+					var target = this.Takee;
+					var comp = cage.GetComp<CompAssignableToPawn_Cage>();
+					return !comp.AssignedPawnsForReading.Contains(target) ||
+						this.pawn.Faction == target.Faction == cage.forPrisoners;
+				});
 			this.AddFinishAction(delegate
 			{
-				var cage = this.DropBed;
+				var cage = this.Cage;
 				var target = this.Takee;
-				if(target.ownership.OwnedBed == cage && this.pawn.Position.IsInside(cage))
+				var comp = cage.GetComp<CompAssignableToPawn_Cage>();
+				if(this.pawn.Position.IsInside(cage))
 				{
-					if(!cage.Destroyed && cage.OwnersForReading.Contains(target))
+					if(!cage.Destroyed && comp.AssignedPawnsForReading.Contains(target))
 					{
-						var position = RestUtility.GetBedSleepingSlotPosFor(target, cage);
-						this.pawn.carryTracker.TryDropCarriedThing(position, ThingPlaceMode.Direct, out var thing);
+						IntVec3 position;
 						if(this.pawn.Position.IsInside(cage))
 						{
-							if(this.job.def.makeTargetPrisoner && !target.AnimalOrWildMan())
+							position = cage.Position;
+							if(!target.AnimalOrWildMan())
 							{
-								var lord = target.GetLord();
-								if(lord != null)
-								{
-									lord.Notify_PawnAttemptArrested(target);
-								}
+								target.GetLord()?.Notify_PawnAttemptArrested(target);
 								GenClamor.DoClamor(target, 10f, ClamorDefOf.Harm);
 								if(!target.IsPrisoner)
 								{
 									QuestUtility.SendQuestTargetSignals(target.questTags, "Arrested", target.Named("SUBJECT"));
 								}
 							}
-							target.jobs.Notify_TuckedIntoBed(cage);
+							//Log.Warning($"{target}, {target.Drawer}, {target.Drawer.tweener}, {target.pather}.");	 //WTF???
+							if(target.pather is null) //WTF???
+							{
+								PawnComponentsUtility.AddComponentsForSpawn(target);
+							}
+							target.Notify_Teleported(false, true);
+							target.stances.CancelBusyStanceHard();
 							target.mindState.Notify_TuckedIntoBed();
-							var comp = cage.GetComp<CompAssignableToPawn_Cage>();
 							var duty = new PawnDuty(DefDatabase<DutyDef>.GetNamed("ZzZomboRW_AnimalCage_BeingHelpCaptive"),
 								cage)
 							{
@@ -283,6 +265,11 @@ namespace ZzZomboRW
 							};
 							target.mindState.duty = duty;
 						}
+						else
+						{
+							position = this.pawn.Position;
+						}
+						this.pawn.carryTracker.TryDropCarriedThing(position, ThingPlaceMode.Direct, out var thing);
 					}
 					if(target.IsPrisonerOfColony)
 					{
@@ -293,21 +280,17 @@ namespace ZzZomboRW
 			yield return Toils_Goto.GotoThing(TargetIndex.A, PathEndMode.ClosestTouch).
 				FailOnDespawnedNullOrForbidden(TargetIndex.A).
 				FailOnDespawnedNullOrForbidden(TargetIndex.B).
-				//FailOn(() => this.job.def == JobDefOf.Arrest && !this.Takee.CanBeArrestedBy(this.pawn)).
-				FailOn(() => !this.pawn.CanReach(this.DropBed.InteractionCell, PathEndMode.OnCell, Danger.Deadly,
+				FailOn(() => !this.pawn.CanReach(this.Cage.InteractionCell, PathEndMode.OnCell, Danger.Deadly,
 					false, TraverseMode.ByPawn)).
 				FailOn(() => !this.Takee.Downed).
 				FailOnSomeonePhysicallyInteracting(TargetIndex.A);
 			var toil = Toils_Haul.StartCarryThing(TargetIndex.A).
-				FailOnNonMedicalBedNotOwned(TargetIndex.B, TargetIndex.A);
+				FailOnDespawnedNullOrForbidden(TargetIndex.A).
+				FailOnDespawnedNullOrForbidden(TargetIndex.B);
 			toil.AddPreInitAction(new Action(() =>
 			{
 				var target = this.Takee;
-				if(target.playerSettings == null)
-				{
-					target.playerSettings = new Pawn_PlayerSettings(target);
-				}
-				if(this.job.def.makeTargetPrisoner && !target.AnimalOrWildMan())
+				if(!target.AnimalOrWildMan())
 				{
 					if(target.guest is null)
 					{
@@ -327,9 +310,8 @@ namespace ZzZomboRW
 			}));
 			yield return toil;
 			yield return Toils_Goto.GotoThing(TargetIndex.B, PathEndMode.InteractionCell);
-			var cell = RestUtility.GetBedSleepingSlotPosFor(this.Takee, this.DropBed);
-			yield return Toils_Goto.GotoThing(TargetIndex.B, cell);
-			yield return Toils_Reserve.Release(TargetIndex.B);
+			yield return Toils_Goto.GotoThing(TargetIndex.B, this.Cage.InteractionCell.ClampInsideRect(this.Cage.OccupiedRect()));
+			yield return Toils_Reserve.Release(TargetIndex.A);
 			yield break;
 		}
 
@@ -363,24 +345,6 @@ namespace ZzZomboRW
 					__result = false;
 				}
 			}
-
-			//[HarmonyPatch(typeof(Pawn_PathFollower), "SetupMoveIntoNextCell", Priority.Last)]
-			//public static class RegionCostCalculator_SetupMoveIntoNextCellPatch
-			//{
-			//	private static void Postfix(Pawn_PathFollower __instance)
-			//	{
-			//		var pawn = new Traverse(__instance).Field("pawn").GetValue<Pawn>();
-			//		var dest = new Traverse(__instance).Field("destination").GetValue<LocalTargetInfo>();
-			//		var map = pawn.Map;
-			//		Log.Warning($"[RegionCostCalculator_PathableNeighborIndicesPatch] {pawn}).");
-			//		var cage1 = PathFinder_FindPathPatch.CageOnCell(pawn.Position, map);
-			//		var cage2 = PathFinder_FindPathPatch.CageOnCell(dest.Cell, map);
-			//		if(__instance.curPath.NodesLeftCount <= 1 && cage1 != cage2)
-			//		{
-			//			__instance.GenerateNewPath();
-			//		}
-			//	}
-			//}	  
 
 			[HarmonyPatch(typeof(RegionCostCalculator), "PreciseRegionLinkDistancesNeighborsGetter", Priority.Last)]
 			public static class RegionCostCalculator_PathableNeighborIndicesPatch
@@ -448,10 +412,10 @@ namespace ZzZomboRW
 				typeof(LocalTargetInfo), typeof(TraverseParms), typeof(PathEndMode) })]
 			public static class PathFinder_FindPathPatch
 			{
-				public static Building_Bed CageOnCell(IntVec3 cell, Map map)
+				public static Building_Cage CageOnCell(IntVec3 cell, Map map)
 				{
-					var building = cell.GetEdifice(map);
-					if(building is Building_Bed cage)
+					var edifice = cell.GetEdifice(map);
+					if(edifice is Building_Cage cage)
 					{
 						var comp = cage.GetComp<CompAssignableToPawn_Cage>();
 						if(!(comp is null))
@@ -543,19 +507,6 @@ namespace ZzZomboRW
 					}
 				}
 			}
-
-			//[HarmonyPatch(typeof(RestUtility), nameof(RestUtility.CurrentBed))]
-			//public static class RestUtility_CurrentBedPatch
-			//{
-			//	private static void Postfix(ref Building_Bed __result, Pawn __instance)
-			//	{
-			//		if(!(__result is null))
-			//		{
-			//			return;
-			//		}
-			//		__result = CompAssignableToPawn_Cage.FindCageFor(__instance, true);
-			//	}
-			//}
 		}
 	}
 	public class WorkGiver_Handler_DeliverFood: WorkGiver_Warden
@@ -566,7 +517,8 @@ namespace ZzZomboRW
 		}
 		public override bool ShouldSkip(Pawn pawn, bool forced = false)
 		{
-			return pawn.Map.GetComponent<MapComponent_Cage>().cages.Count < 1;
+			var count = pawn.Map.GetComponent<MapComponent_Cage>()?.cages?.Count;
+			return count is null || count < 1;
 		}
 		public override Job JobOnThing(Pawn pawn, Thing t, bool forced = false)
 		{
@@ -637,6 +589,16 @@ namespace ZzZomboRW
 				}
 			}
 			return availableNutrition + 0.5f >= wantedNutrition;
+		}
+	}
+	public class ThinkNode_Duty: ThinkNode
+	{
+		private string dutyDef;
+		public override ThinkResult TryIssueJobPackage(Pawn pawn, JobIssueParams jobParams)
+		{
+			var duty = new PawnDuty(DefDatabase<DutyDef>.GetNamed(this.dutyDef));
+			pawn.mindState.duty = duty;
+			return ThinkResult.NoJob;
 		}
 	}
 	public class ThinkNode_ConditionalInsideCage: ThinkNode_Priority
