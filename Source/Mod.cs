@@ -462,27 +462,26 @@ namespace ZzZomboRW
 					return null;
 				}
 				private static void Prefix(PathFinder __instance, ref Building_Cage[] __state,
-					Map ___map, IntVec3 start, ref LocalTargetInfo dest, TraverseParms traverseParms, PathEndMode peMode)
+					Map ___map, ref IntVec3 start, ref LocalTargetInfo dest, TraverseParms traverseParms, PathEndMode peMode)
 				{
 					var map = ___map;
 					var cage1 = CageOnCell(start, map);
 					var cage2 = CageOnCell(dest.Cell, map);
 					if(cage1 == cage2)
 					{
-						//Log.Message($"[PF (prefix)] `{cage1}`==`{cage2}`, returning.");
 						if(cage1 is Building_Cage _cage)
 						{
 							_cage.pathCost = 0;
 						}
 						return;
 					}
-					//Log.Message($"[PF (prefix)] `{cage1}`!=`{cage2}`.");
 					__state = new Building_Cage[] { cage1 as Building_Cage, cage2 as Building_Cage };
 					if(cage1 != null)
 					{
-						var spot = cage1.InteractionCell.ClampInsideRect(cage1.OccupiedRect());
-						//var s = $"[PF (prefix)] `{cage1}`!=`{cage2}`, start={start}, dest={dest}, spot1={spot}, spot2=";
-						dest = start == spot ? cage1.InteractionCell : (LocalTargetInfo)spot;
+						var spot1 = cage1.InteractionCell;
+						var spot2 = new IntVec3(spot1.ToVector3()).ClampInsideRect(cage1.OccupiedRect());
+						//var s = $"[PF1 (prefix)] `{cage1}`!=`{cage2}`, start={start}, dest={dest}, spot1={spot1}, spot2=";
+						dest = start == spot2 ? spot1 : spot2;
 						//s += $"{dest}.";
 						//Log.Message(s);
 						if(cage1 is Building_Cage _cage)
@@ -492,18 +491,49 @@ namespace ZzZomboRW
 					}
 					else
 					{
-						var spot = cage2.InteractionCell;
-						dest = start == spot ? (LocalTargetInfo)spot : spot.ClampInsideRect(cage2.OccupiedRect());
+						var spot1 = cage2.InteractionCell;
+						//var s = $"[PF2 (prefix)] `{cage1}`!=`{cage2}`, start={start}, dest={dest}, spot1={spot1}, spot2=";
+						dest = start == spot1 ? new IntVec3(spot1.ToVector3()).ClampInsideRect(cage2.OccupiedRect()) : spot1;
+						//s += $"{dest}.";
+						//Log.Message(s);
 						if(cage2 is Building_Cage _cage)
 						{
 							_cage.pathCost = 8000;
 						}
 					}
 				}
-				private static void Postfix(PawnPath __result, PathFinder __instance, ref
+				private static void Postfix(ref PawnPath __result, PathFinder __instance, ref
 					Building_Cage[] __state, IntVec3 start, LocalTargetInfo dest, TraverseParms traverseParms, PathEndMode peMode)
 				{
-					Log.Message($"[PF (postfix)] result={__result}.");
+					//Log.Message($"[PF (postfix)] result={__result}.");
+					var (cage1, cage2) = (__state?[0], __state?[1]);
+					//Log.Message($"[PF (postfix)] cage1={cage1}, cage2={cage2}.");
+					/// HERE BE DRAGONS! This is a giant hack, as sometimes the path finder returns paths of exactly
+					/// one node, of the pawn's current position (the `start` parameter), when going into or out a cage.
+					/// It doesn't always happen, and so I couldn't determine the exact cause of this errant behavior.
+					/// Instead I just insert the two entrance cells into the returned path as appropriate.
+					if(cage1 != cage2 && __result.NodesLeftCount is 1 && dest != start)
+					{
+						//Log.Message($"[PF (postfix)] {dest}!={(LocalTargetInfo)start}, patching the path.");
+						var cage = cage1 ?? cage2;
+						var f = new Traverse(__result).Field("nodes");
+						var nodes = f.GetValue<List<IntVec3>>();
+						var spot1 = cage.InteractionCell;
+						var spot2 = new IntVec3(spot1.ToVector3()).ClampInsideRect(cage.OccupiedRect());
+						var newNodes = new List<IntVec3> { spot2, spot1 };
+						//Log.Message($"[PF (postfix)] pawn pos.={traverseParms.pawn.Position} (start={start}), interact. cell={newNodes[1]}, entran. cell={newNodes[0]}.");
+						newNodes.RemoveAll((c) => c == start);
+						if(cage == cage1)
+						{
+							newNodes.Reverse();
+						}
+						nodes.InsertRange(0, newNodes);
+						//Log.Message($"[PF (postfix)] new nodes=[{string.Join(", ", nodes)}], patching the path complete.");
+						f.SetValue(nodes);
+						f = new Traverse(__result).Field("curNodeIndex");
+						f.SetValue(f.GetValue<int>() + newNodes.Count);
+						//Log.Message($"[PF (postfix)] {__result}, [{string.Join(", ", nodes)}], patching the path complete.");
+					}
 					foreach(var cage in __state ?? Array.Empty<Building_Cage>())
 					{
 						if(cage != null)
