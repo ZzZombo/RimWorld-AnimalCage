@@ -161,6 +161,31 @@ namespace ZzZomboRW
 			//FIXME: Update the translation key.
 			return "CommandThingSetOwnerLabel".Translate();
 		}
+
+		public static bool Reachable(IntVec3 start, LocalTargetInfo dest, PathEndMode peMode,
+			TraverseParms traverseParams)
+		{
+			var pawn = traverseParams.pawn;
+			if(pawn is null)
+			{
+				return false;
+			}
+			var cage = CompAssignableToPawn_Cage.FindCageFor(pawn);
+			if(cage is null)
+			{
+				return true;
+			}
+			if((peMode == PathEndMode.Touch || peMode == PathEndMode.ClosestTouch) && TouchPathEndModeUtility.
+				IsAdjacentOrInsideAndAllowedToTouch(start, dest, pawn.Map))
+			{
+				return true;
+			}
+			else if(dest.Cell.IsInside(cage))
+			{
+				return true;
+			}
+			return false;
+		}
 	}
 	public class WorkGiver_RescueToCage: WorkGiver_RescueDowned
 	{
@@ -237,10 +262,8 @@ namespace ZzZomboRW
 				{
 					if(!cage.Destroyed && comp.AssignedPawnsForReading.Contains(target))
 					{
-						IntVec3 position;
 						if(this.pawn.Position.IsInside(cage))
 						{
-							position = cage.Position;
 							if(!target.AnimalOrWildMan())
 							{
 								target.GetLord()?.Notify_PawnAttemptArrested(target);
@@ -250,11 +273,7 @@ namespace ZzZomboRW
 									QuestUtility.SendQuestTargetSignals(target.questTags, "Arrested", target.Named("SUBJECT"));
 								}
 							}
-							//Log.Warning($"{target}, {target.Drawer}, {target.Drawer.tweener}, {target.pather}.");	 //WTF???
-							if(target.pather is null) //WTF???
-							{
-								PawnComponentsUtility.AddComponentsForSpawn(target);
-							}
+							this.pawn.carryTracker.TryDropCarriedThing(cage.Position, ThingPlaceMode.Direct, out var thing);
 							target.Notify_Teleported(false, true);
 							target.stances.CancelBusyStanceHard();
 							target.mindState.Notify_TuckedIntoBed();
@@ -267,9 +286,8 @@ namespace ZzZomboRW
 						}
 						else
 						{
-							position = this.pawn.Position;
+							this.pawn.carryTracker.TryDropCarriedThing(this.pawn.Position, ThingPlaceMode.Direct, out var thing);
 						}
-						this.pawn.carryTracker.TryDropCarriedThing(position, ThingPlaceMode.Direct, out var thing);
 					}
 					if(target.IsPrisonerOfColony)
 					{
@@ -324,6 +342,113 @@ namespace ZzZomboRW
 				Harmony.DEBUG = true;
 				harmony.PatchAll();
 			}
+
+			[HarmonyPatch(typeof(ReachabilityWithinRegion), nameof(ReachabilityWithinRegion.ThingFromRegionListerReachable), Priority.Last)]
+			public static class ReachabilityWithinRegion_ThingFromRegionListerReachablePatch
+			{
+				private static void Postfix(ref bool __result, Thing thing, Region region, PathEndMode peMode, Pawn traveler)
+				{
+					if(!__result || traveler is null)
+					{
+						return;
+					}
+					var cage = CompAssignableToPawn_Cage.FindCageFor(traveler);
+					if(cage != null)
+					{
+						__result = CompAssignableToPawn_Cage.Reachable(traveler.Position, thing, peMode, TraverseParms.For(traveler,
+							mode: TraverseMode.ByPawn));
+					}
+				}
+			}
+
+			[HarmonyPatch(typeof(ForbidUtility), nameof(ForbidUtility.CaresAboutForbidden), Priority.Last)]
+			public static class ForbidUtility_CaresAboutForbiddenPatch
+			{
+				private static void Postfix(ref bool __result, Pawn pawn, bool cellTarget)
+				{
+					if(__result)
+					{
+						return;
+					}
+					var cage = CompAssignableToPawn_Cage.FindCageFor(pawn);
+					if(cage != null)
+					{
+						__result = true;
+					}
+				}
+			}
+
+			[HarmonyPatch(typeof(ForbidUtility), nameof(ForbidUtility.InAllowedArea), Priority.Last)]
+			public static class ForbidUtility_InAllowedAreaPatch
+			{
+				private static void Postfix(ref bool __result, IntVec3 c, Pawn forPawn)
+				{
+					if(!__result)
+					{
+						return;
+					}
+					var cage = CompAssignableToPawn_Cage.FindCageFor(forPawn);
+					if(cage != null)
+					{
+						__result = CompAssignableToPawn_Cage.Reachable(forPawn.Position, c, PathEndMode.OnCell,
+							TraverseParms.For(forPawn, mode: TraverseMode.ByPawn));
+					}
+				}
+			}
+
+			[HarmonyPatch(typeof(ForbidUtility), nameof(ForbidUtility.IsForbiddenEntirely), Priority.Last)]
+			public static class ForbidUtility_IsForbiddenEntirelyPatch
+			{
+				private static void Postfix(ref bool __result, Region r, Pawn pawn)
+				{
+					if(__result)
+					{
+						return;
+					}
+					var cage = CompAssignableToPawn_Cage.FindCageFor(pawn);
+					if(cage != null)
+					{
+						__result = r != cage.GetRegion();
+					}
+				}
+			}
+
+			[HarmonyPatch(typeof(CellFinder), nameof(CellFinder.TryFindRandomReachableCellNear), Priority.Last)]
+			public static class CellFinder_TryFindRandomReachableCellNearPatch
+			{
+				private static void Postfix(ref bool __result, IntVec3 root, Map map, float radius, TraverseParms traverseParms,
+					Predicate<IntVec3> cellValidator, Predicate<Region> regionValidator, ref IntVec3 result, int maxRegions)
+				{
+					if(!__result || traverseParms.pawn is null)
+					{
+						return;
+					}
+					var cage = CompAssignableToPawn_Cage.FindCageFor(traverseParms.pawn);
+					if(cage != null)
+					{
+						result = cage.OccupiedRect().InRandomOrder().ToList().Find(cellValidator);
+						__result = regionValidator is null || regionValidator(result.GetRegion(map, RegionType.Set_Passable));
+					}
+				}
+			}
+
+			[HarmonyPatch(typeof(GenClosest), nameof(GenClosest.ClosestThingReachable), Priority.Last)]
+			public static class GenClosest_ClosestThingReachablePatch
+			{
+				private static void Postfix(ref Thing __result, IntVec3 root, Map map, ThingRequest thingReq,
+					PathEndMode peMode, TraverseParms traverseParams, float maxDistance,
+					Predicate<Thing> validator, IEnumerable<Thing> customGlobalSearchSet,
+					int searchRegionsMin, int searchRegionsMax, bool forceAllowGlobalSearch,
+					RegionType traversableRegionTypes, bool ignoreEntirelyForbiddenRegions)
+				{
+					if(__result is null || traverseParams.pawn is null)
+					{
+						return;
+					}
+					__result = CompAssignableToPawn_Cage.Reachable(root, __result, peMode, traverseParams) ? __result : null;
+				}
+			}
+
 			[HarmonyPriority(Priority.Last)]
 			[HarmonyPatch(typeof(Reachability), nameof(Reachability.CanReach), new Type[] { typeof(IntVec3),
 				typeof(LocalTargetInfo), typeof(PathEndMode), typeof(TraverseParms) })]
@@ -332,17 +457,60 @@ namespace ZzZomboRW
 				private static void Postfix(ref bool __result, IntVec3 start, LocalTargetInfo dest,
 					PathEndMode peMode, TraverseParms traverseParams)
 				{
-					var pawn = traverseParams.pawn;
-					if(!__result || CompAssignableToPawn_Cage.FindCageFor(pawn) is null)
+					if(!__result || traverseParams.pawn is null)
 					{
 						return;
 					}
-					if((peMode == PathEndMode.Touch || peMode == PathEndMode.ClosestTouch) && TouchPathEndModeUtility.
-						IsAdjacentOrInsideAndAllowedToTouch(pawn.Position, dest, pawn.Map))
+					//Log.Warning($"[Reachability_CanReachPatch] {pawn} at {pawn.Position} inside {CompAssignableToPawn_Cage.FindCageFor(pawn)} " +
+					//	$"attempted to reach {dest} ({dest.Cell}) from {start} with job `{pawn.CurJob}` and `peMode`={peMode}.");
+					__result = CompAssignableToPawn_Cage.Reachable(start, dest, peMode, traverseParams);
+				}
+			}
+
+			[HarmonyPriority(Priority.Last)]
+			[HarmonyPatch(typeof(ForbidUtility), nameof(ForbidUtility.IsForbidden), new Type[] { typeof(IntVec3),
+				typeof(Pawn) })]
+			public static class ForbidUtility_IsForbiddenPatch
+			{
+				private static void Postfix(ref bool __result, IntVec3 c, Pawn pawn)
+				{
+					if(__result)
 					{
 						return;
 					}
-					__result = false;
+					__result = !CompAssignableToPawn_Cage.Reachable(pawn.Position, c, PathEndMode.ClosestTouch, TraverseParms.For(
+						pawn, mode: TraverseMode.ByPawn));
+				}
+			}
+
+			[HarmonyPriority(Priority.Last)]
+			[HarmonyPatch(typeof(ForbidUtility), nameof(ForbidUtility.IsForbidden), new Type[] { typeof(Thing),
+				typeof(Pawn) })]
+			public static class ForbidUtility_IsForbiddenPatch2
+			{
+				private static void Postfix(ref bool __result, Thing t, Pawn pawn)
+				{
+					if(__result)
+					{
+						return;
+					}
+					__result = !CompAssignableToPawn_Cage.Reachable(pawn.Position, t, PathEndMode.ClosestTouch, TraverseParms.For(
+						pawn, mode: TraverseMode.ByPawn));
+				}
+			}
+
+			[HarmonyPatch(typeof(RCellFinder), nameof(RCellFinder.SpotToChewStandingNear), Priority.Last)]
+			public static class Reachability_SpotToChewStandingNearPatch
+			{
+				private static bool Prefix(ref IntVec3 __result, Pawn pawn, Thing ingestible)
+				{
+					var cage = CompAssignableToPawn_Cage.FindCageFor(pawn);
+					if(cage is null)
+					{
+						return true;
+					}
+					__result = cage.OccupiedRect().RandomCell;
+					return false;
 				}
 			}
 
@@ -428,8 +596,18 @@ namespace ZzZomboRW
 				private static void Prefix(PathFinder __instance, ref Building_Cage[] __state,
 					Map ___map, ref IntVec3 start, ref LocalTargetInfo dest, TraverseParms traverseParms, PathEndMode peMode)
 				{
+					if(traverseParms.pawn is null)
+					{
+						return;
+					}
 					var map = ___map;
 					var cage1 = CageOnCell(start, map);
+					if(cage1 != null && (peMode == PathEndMode.Touch || peMode == PathEndMode.ClosestTouch) &&
+						TouchPathEndModeUtility.IsAdjacentOrInsideAndAllowedToTouch(start, dest, traverseParms.pawn.Map))
+					{
+						dest = dest.Cell.ClampInsideRect(cage1.OccupiedRect());
+						return;
+					}
 					var cage2 = CageOnCell(dest.Cell, map);
 					if(cage1 == cage2)
 					{
@@ -469,34 +647,47 @@ namespace ZzZomboRW
 				private static void Postfix(ref PawnPath __result, PathFinder __instance, ref
 					Building_Cage[] __state, IntVec3 start, LocalTargetInfo dest, TraverseParms traverseParms, PathEndMode peMode)
 				{
-					//Log.Message($"[PF (postfix)] result={__result}.");
-					var (cage1, cage2) = (__state?[0], __state?[1]);
-					//Log.Message($"[PF (postfix)] cage1={cage1}, cage2={cage2}.");
-					/// HERE BE DRAGONS! This is a giant hack, as sometimes the path finder returns paths of exactly
-					/// one node, of the pawn's current position (the `start` parameter), when going into or out a cage.
-					/// It doesn't always happen, and so I couldn't determine the exact cause of this errant behavior.
-					/// Instead I just insert the two entrance cells into the returned path as appropriate.
-					if(cage1 != cage2 && __result.NodesLeftCount is 1 && dest != start)
+					if(traverseParms.pawn is null)
 					{
-						//Log.Message($"[PF (postfix)] {dest}!={(LocalTargetInfo)start}, patching the path.");
+						return;
+					}
+					var (cage1, cage2) = (__state?[0], __state?[1]);
+					//Log.Message($"[PF (postfix)] result={__result}, cage1={cage1}, cage2={cage2}.");
+					if(cage1 != cage2)
+					{
 						var cage = cage1 ?? cage2;
-						var f = new Traverse(__result).Field("nodes");
-						var nodes = f.GetValue<List<IntVec3>>();
-						var spot1 = cage.InteractionCell;
-						var spot2 = new IntVec3(spot1.ToVector3()).ClampInsideRect(cage.OccupiedRect());
-						var newNodes = new List<IntVec3> { spot2, spot1 };
-						//Log.Message($"[PF (postfix)] pawn pos.={traverseParms.pawn.Position} (start={start}), interact. cell={newNodes[1]}, entran. cell={newNodes[0]}.");
-						newNodes.RemoveAll((c) => c == start);
-						if(cage == cage1)
+						if(cage1 != null && cage1 == CompAssignableToPawn_Cage.FindCageFor(traverseParms.pawn))
 						{
-							newNodes.Reverse();
+							Log.Warning($"[PF (postfix)] Attempt to leave cage prevented: {traverseParms.pawn}, cage1={cage1}," +
+								$" cage2={cage2}, job=`{traverseParms.pawn.CurJob}`, result={__result}.");
+							__result.ReleaseToPool();
+							__result = PawnPath.NotFound;
 						}
-						nodes.InsertRange(0, newNodes);
-						//Log.Message($"[PF (postfix)] new nodes=[{string.Join(", ", nodes)}], patching the path complete.");
-						f.SetValue(nodes);
-						f = new Traverse(__result).Field("curNodeIndex");
-						f.SetValue(f.GetValue<int>() + newNodes.Count);
-						//Log.Message($"[PF (postfix)] {__result}, [{string.Join(", ", nodes)}], patching the path complete.");
+						else if(__result.NodesLeftCount is 1 && dest != start)
+						{
+							/// HERE BE DRAGONS! This is a giant hack, as sometimes the path finder returns paths of exactly
+							/// one node, of the pawn's current position (the `start` parameter), when going into or out a cage.
+							/// It doesn't always happen, and so I couldn't determine the exact cause of this errant behavior.
+							/// Instead I just insert the two entrance cells into the returned path as appropriate.
+							//Log.Message($"[PF (postfix)] {dest}!={(LocalTargetInfo)start}, patching the path.");
+							var spot1 = cage.InteractionCell;
+							var spot2 = new IntVec3(spot1.ToVector3()).ClampInsideRect(cage.OccupiedRect());
+							var newNodes = new List<IntVec3> { spot2, spot1 };
+							//Log.Message($"[PF (postfix)] pawn pos.={traverseParms.pawn.Position} (start={start}), interact. cell={newNodes[1]}, entran. cell={newNodes[0]}.");
+							newNodes.RemoveAll((c) => c == start);
+							if(cage == cage1)
+							{
+								newNodes.Reverse();
+							}
+							var f = new Traverse(__result).Field("nodes");
+							var nodes = f.GetValue<List<IntVec3>>();
+							nodes.InsertRange(0, newNodes);
+							//Log.Message($"[PF (postfix)] new nodes=[{string.Join(", ", nodes)}], patching the path complete.");
+							f.SetValue(nodes);
+							f = new Traverse(__result).Field("curNodeIndex");
+							f.SetValue(f.GetValue<int>() + newNodes.Count);
+							//Log.Message($"[PF (postfix)] {__result}, [{string.Join(", ", nodes)}], patching the path complete.");
+						}
 					}
 					foreach(var cage in __state ?? Array.Empty<Building_Cage>())
 					{
@@ -522,37 +713,43 @@ namespace ZzZomboRW
 		}
 		public override Job JobOnThing(Pawn pawn, Thing t, bool forced = false)
 		{
+			Log.Message("[WorkGiver_Handler_DeliverFood] check #1.");
 			if(pawn is null || !(t is Pawn target) || CompAssignableToPawn_Cage.FindCageFor(target) is null ||
 				target.IsFormingCaravan() || !pawn.CanReserveAndReach(pawn, PathEndMode.OnCell, pawn.NormalMaxDanger(),
 				ignoreOtherReservations: forced))
 			{
 				return null;
 			}
-			if(!target.Downed || target.needs.food.CurLevelPercentage >=
+			Log.Message("[WorkGiver_Handler_DeliverFood] check #2.");
+			if(!target.Downed || target.needs?.food is null || target.needs.food.CurLevelPercentage >=
 				target.needs.food.PercentageThreshHungry + 0.04f)
 			{
 				return null;
 			}
+			Log.Message("[WorkGiver_Handler_DeliverFood] check #3.");
 			if(FeedPatientUtility.ShouldBeFed(target))
 			{
 				return null;
 			}
+			Log.Message("[WorkGiver_Handler_DeliverFood] check #4.");
 			if(!FoodUtility.TryFindBestFoodSourceFor(pawn, target, target.needs.food.CurCategory == HungerCategory.Starving,
 				out var thing, out var thingDef, false))
 			{
 				return null;
 			}
-			if(this.FoodAvailableInRoomTo(target))
+			Log.Message("[WorkGiver_Handler_DeliverFood] check #5.");
+			if(this.FoodAvailableInCageTo(target))
 			{
 				return null;
 			}
+			Log.Message("[WorkGiver_Handler_DeliverFood] checks succeded, making a job.");
 			var nutrition = FoodUtility.GetNutrition(thing, thingDef);
 			var job = JobMaker.MakeJob(JobDefOf.DeliverFood, thing, target);
 			job.count = FoodUtility.WillIngestStackCountOf(target, thingDef, nutrition);
 			job.targetC = RCellFinder.SpotToChewStandingNear(target, thing);
 			return job;
 		}
-		private bool FoodAvailableInRoomTo(Pawn target)
+		private bool FoodAvailableInCageTo(Pawn target)
 		{
 			var mi = base.GetType().GetMethod("NutritionAvailableForFrom",
 				System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic);

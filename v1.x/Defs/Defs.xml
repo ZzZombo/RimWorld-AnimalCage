@@ -16,10 +16,6 @@
 			<leaveTerrain>WoodPlankFloor</leaveTerrain>
 			<bed_humanlike>false</bed_humanlike>
 			<bed_maxBodySize>0.65</bed_maxBodySize>
-			<bed_showSleeperBody>true</bed_showSleeperBody>
-			<bed_healPerDay>4</bed_healPerDay>
-			<bed_caravansCanUse>false</bed_caravansCanUse>
-			<!-- <bed_defaultMedical>true</bed_defaultMedical> -->
 		</building>
 		<defaultPlacingRot>South</defaultPlacingRot>
 		<interactionCellOffset>(0,0,-1)</interactionCellOffset>
@@ -70,7 +66,7 @@
 			</li>
 		</comps>
 	</ThingDef>
-	<ThingDef ParentName="ZzZomboRW_AnimalCage_Cage_Base">
+	<ThingDef ParentName="ZzZomboRW_AnimalCage_Cage_Base" Name="ZzZomboRW_AnimalCage_Cage_ThreeByThree">
 		<defName>ZzZomboRW_AnimalCage_Cage_ThreeByThree</defName>
 		<label>medium animal cage</label>
 		<description>A meduim-sized cage to keep fitting animals in. Fits average animals like dogs, foxes, or monkeys. Animals inside are peaceful and will be cared for by colonists even if they are wild.</description>
@@ -110,6 +106,15 @@
 			</li>
 		</comps>
 	</ThingDef>
+	<ThingDef ParentName="ZzZomboRW_AnimalCage_Cage_ThreeByThree">
+		<defName>ZzZomboRW_AnimalCage_Cage_ThreeByThree_Human</defName>
+		<label>medium human cage</label>
+		<description>A meduim-sized cage to keep humans inside.</description>
+		<building>
+			<bed_maxBodySize>1</bed_maxBodySize>
+			<bed_humanlike>true</bed_humanlike>
+		</building>
+	</ThingDef>
 	<JobDef>
 		<defName>ZzZomboRW_AnimalCage_Capture</defName>
 		<driverClass>ZzZomboRW.JobDriver_TakeToCage</driverClass>
@@ -133,19 +138,19 @@
 			<li>Manipulation</li>
 		</requiredCapacities>
 	</WorkGiverDef>
-	<!-- <WorkGiverDef>
-		<defName>ZzZomboRW_AnimalCage_AnimalInteraction</defName>
-		<label>take care of captured animals</label>
-		<giverClass>WorkGiver_DoBill</giverClass>
-		<workType>Handler</workType>
-		<priorityInType>30</priorityInType>
-		<verb>take care of</verb>
-		<gerund>caring for</gerund>
+	<WorkGiverDef>
+		<defName>ZzZomboRW_AnimalCage_DeliverFood</defName>
+		<label>deliver food to captive animals</label>
+		<giverClass>ZzZomboRW.WorkGiver_Handler_DeliverFood</giverClass>
+		<workType>Handling</workType>
+		<verb>deliver food</verb>
+		<gerund>delivering food</gerund>
+		<priorityInType>60</priorityInType>
+		<directOrderable>true</directOrderable>
 		<requiredCapacities>
 			<li>Manipulation</li>
 		</requiredCapacities>
-		<prioritizeSustains>true</prioritizeSustains>
-	</WorkGiverDef> -->
+	</WorkGiverDef>
 	<DutyDef>
 		<defName>ZzZomboRW_AnimalCage_BeingHelpCaptive</defName>
 		<alwaysShowWeapon>false</alwaysShowWeapon>
