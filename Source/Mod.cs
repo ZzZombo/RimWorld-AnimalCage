@@ -204,13 +204,24 @@ namespace ZzZomboRW
 		}
 		public override bool HasJobOnThing(Pawn pawn, Thing t, bool forced = false)
 		{
-			//var _t = t as Pawn;
-			//Log.Message($"[WorkGiver_RescueToCage.HasJobOnThing] {pawn}, {_t}, {_t?.Downed}, {CompAssignableToPawn_Cage.HasFreeCagesFor(_t)}, {CompAssignableToPawn_Cage.FindCageFor(_t)}, {pawn.CanReserve(_t, ignoreOtherReservations: forced)}.");
-			return t is Pawn target && target.Downed &&
-				target.Map == pawn.Map &&
-				CompAssignableToPawn_Cage.HasFreeCagesFor(target) &&
-				CompAssignableToPawn_Cage.FindCageFor(target) is null &&
-				pawn.CanReserve(target, ignoreOtherReservations: forced);
+			if(t.Map != pawn.Map)
+			{
+				return false;
+			}
+			var result = false;
+			if(t is Pawn target)
+			{
+				var cage = CompAssignableToPawn_Cage.FindCageFor(target);
+				if(cage != null)
+				{
+					result = target.Downed && target.CurJobDef != JobDefOf.LayDown;
+				}
+				else if(CompAssignableToPawn_Cage.HasFreeCagesFor(target))
+				{
+					result = target.Downed || target.IsPrisonerOfColony;
+				}
+			}
+			return result && pawn.CanReserve(t, ignoreOtherReservations: forced);
 		}
 
 		public override Job JobOnThing(Pawn pawn, Thing t, bool forced = false)
@@ -313,12 +324,12 @@ namespace ZzZomboRW
 			toil.AddPreInitAction(new Action(() =>
 			{
 				var target = this.Takee;
+				if(target.playerSettings == null)
+				{
+					target.playerSettings = new Pawn_PlayerSettings(this.Takee);
+				}
 				if(!target.AnimalOrWildMan())
 				{
-					if(this.Takee.playerSettings == null)
-					{
-						this.Takee.playerSettings = new Pawn_PlayerSettings(this.Takee);
-					}
 					if(target.guest is null)
 					{
 						target.guest = new Pawn_GuestTracker(target);
@@ -357,13 +368,13 @@ namespace ZzZomboRW
 		{
 			//Log.Message("[WorkGiver_Handler_DeliverFood] check #1.");
 			if(pawn is null || !(t is Pawn target) || CompAssignableToPawn_Cage.FindCageFor(target) is null ||
-				target.IsFormingCaravan() || !pawn.CanReserveAndReach(pawn, PathEndMode.OnCell, pawn.NormalMaxDanger(),
-				ignoreOtherReservations: forced))
+				target.IsFormingCaravan() || !pawn.CanReach(pawn.InteractionCell, PathEndMode.ClosestTouch,
+				pawn.NormalMaxDanger()))
 			{
 				return null;
 			}
 			//Log.Message("[WorkGiver_Handler_DeliverFood] check #2.");
-			if(!target.Downed || target.needs?.food is null || target.needs.food.CurLevelPercentage >=
+			if(target.Downed || target.needs?.food is null || target.needs.food.CurLevelPercentage >=
 				target.needs.food.PercentageThreshHungry + 0.04f)
 			{
 				return null;
@@ -413,21 +424,19 @@ namespace ZzZomboRW
 			{
 				foreach(var thing in region.ListerThings.ThingsInGroup(ThingRequestGroup.FoodSourceNotPlantOrTree))
 				{
-					if(thing.Position.IsInside(cage))
+					if((!thing.def.IsIngestible || thing.def.ingestible.preferability >
+							FoodPreferability.DesperateOnlyForHumanlikes) && thing.Position.IsInside(cage))
 					{
-						if(!thing.def.IsIngestible || thing.def.ingestible.preferability >
-							FoodPreferability.DesperateOnlyForHumanlikes)
-						{
-							availableNutrition += (float)mi.Invoke(null, new object[] { target, thing });
-						}
+						availableNutrition += (float)mi.Invoke(null, new object[] { target, thing });
 					}
 				}
 				foreach(var p in region.ListerThings.ThingsInGroup(ThingRequestGroup.Pawn))
 				{
 					var pawn = (Pawn)p;
-					if(pawn.IsPrisonerOfColony && pawn.Position.IsInside(cage) && pawn.needs?.food != null &&
+					if(pawn.IsPrisonerOfColony && pawn.needs?.food != null &&
 						pawn.needs.food.CurLevelPercentage < pawn.needs.food.PercentageThreshHungry + 0.02f &&
-						(pawn.carryTracker.CarriedThing == null || !pawn.WillEat(pawn.carryTracker.CarriedThing, null, true)))
+						(pawn.carryTracker.CarriedThing == null || !pawn.WillEat(pawn.carryTracker.CarriedThing, null, true)) &&
+						pawn.Position.IsInside(cage))
 					{
 						wantedNutrition += pawn.needs.food.NutritionWanted;
 					}

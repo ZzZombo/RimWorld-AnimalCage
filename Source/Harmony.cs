@@ -322,6 +322,7 @@ namespace ZzZomboRW
 				}
 			}
 		}
+
 		[HarmonyPatch(typeof(RegionCostCalculator), "PreciseRegionLinkDistancesNeighborsGetter", Priority.Last)]
 		public static class RegionCostCalculator_PathableNeighborIndicesPatch
 		{
@@ -380,6 +381,24 @@ namespace ZzZomboRW
 					}
 				}
 				__result = result;
+			}
+		}
+
+		[HarmonyPatch(typeof(WorkGiver_Tend), nameof(WorkGiver_Tend.HasJobOnThing), Priority.Last)]
+		public static class WorkGiver_Tend_HasJobOnThingPatch
+		{
+			private static void Postfix(ref bool __result, ref WorkGiver_Tend __instance, Pawn pawn, Thing t, bool forced)
+			{
+				if(__result || t == pawn && !(__instance is WorkGiver_TendSelf))
+				{
+					return;
+				}
+				__result = t is Pawn target && CompAssignableToPawn_Cage.FindCageFor(target) != null &&
+					!pawn.WorkTypeIsDisabled(WorkTypeDefOf.Doctor) &&
+					(!__instance.def.tendToHumanlikesOnly || target.RaceProps.Humanlike && !target.IsWildMan()) &&
+					(!__instance.def.tendToAnimalsOnly || target.AnimalOrWildMan()) &&
+					target.GetPosture() != PawnPosture.Standing && HealthAIUtility.ShouldBeTendedNowByPlayer(target) &&
+					pawn.CanReserve(target, 1, -1, null, forced);
 			}
 		}
 	}

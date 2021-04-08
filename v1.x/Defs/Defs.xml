@@ -129,7 +129,7 @@
 		<giverClass>ZzZomboRW.WorkGiver_RescueToCage</giverClass>
 		<canBeDoneWhileDrafted>true</canBeDoneWhileDrafted>
 		<autoTakeablePriorityDrafted>10</autoTakeablePriorityDrafted>
-		<workType>Warden</workType>
+		<workType>Handling</workType>
 		<verb>capture</verb>
 		<gerund>capturing</gerund>
 		<priorityInType>60</priorityInType>
@@ -160,6 +160,12 @@
 			<subNodes>
 				<li Class="ZzZomboRW.ThinkNode_ConditionalInsideCage">
 					<subNodes>
+						<li Class="ThinkNode_ConditionalMustKeepLyingDown">
+							<subNodes>
+								<li Class="ThinkNode_QueuedJob" />
+								<li Class="JobGiver_KeepLyingDown" />
+							</subNodes>
+						</li>
 						<li Class="ThinkNode_Subtree">
 							<treeDef>Downed</treeDef>
 						</li>
@@ -181,8 +187,6 @@
 								<li Class="JobGiver_SelfTend" />
 							</subNodes>
 						</li>
-						<li Class="JobGiver_SeekSafeTemperature" />
-						<li Class="JobGiver_SeekAllowedArea" />
 						<li Class="ThinkNode_QueuedJob" />
 						<li Class="ThinkNode_Subtree">
 							<treeDef>SatisfyBasicNeeds</treeDef>
