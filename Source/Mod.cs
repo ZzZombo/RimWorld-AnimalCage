@@ -115,7 +115,7 @@ namespace ZzZomboRW
 			{
 				comp.TryUnassignPawn(pawn);
 			}
-			forPrisoners = value;
+			this.forPrisoners = value;
 		}
 
 		public override void ExposeData()
@@ -131,6 +131,30 @@ namespace ZzZomboRW
 			HasFreeCagesFor(pawn) is true;
 		public static Building_Cage FindCageFor(Pawn pawn, bool onlyIfInside = true) => pawn?.MapHeld?.
 			GetComponent<MapComponent_Cage>()?.FindCageFor(pawn, onlyIfInside);
+		public static bool Reachable(IntVec3 start, LocalTargetInfo dest, PathEndMode peMode,
+			TraverseParms traverseParams)
+		{
+			var pawn = traverseParams.pawn;
+			if(pawn is null)
+			{
+				return false;
+			}
+			var cage = CompAssignableToPawn_Cage.FindCageFor(pawn);
+			if(cage is null)
+			{
+				return true;
+			}
+			if((peMode == PathEndMode.Touch || peMode == PathEndMode.ClosestTouch) && TouchPathEndModeUtility.
+				IsAdjacentOrInsideAndAllowedToTouch(start, dest, pawn.Map))
+			{
+				return true;
+			}
+			else if(dest.Cell.IsInside(cage))
+			{
+				return true;
+			}
+			return false;
+		}
 
 		public override IEnumerable<Pawn> AssigningCandidates
 		{
@@ -157,44 +181,14 @@ namespace ZzZomboRW
 			}
 			foreach(var cage in pawn?.MapHeld?.GetComponent<MapComponent_Cage>()?.cages ?? Enumerable.Empty<Building_Cage>())
 			{
-				var comp = cage.CageComp;
-				if(comp?.AssignedPawnsForReading.Contains(pawn) is true)
-				{
-					comp.TryUnassignPawn(pawn);
-				}
+				cage.CageComp?.TryUnassignPawn(pawn);
 			}
 			base.TryAssignPawn(pawn);
 		}
-
 		protected override string GetAssignmentGizmoLabel()
 		{
 			//FIXME: Update the translation key.
 			return "CommandThingSetOwnerLabel".Translate();
-		}
-
-		public static bool Reachable(IntVec3 start, LocalTargetInfo dest, PathEndMode peMode,
-			TraverseParms traverseParams)
-		{
-			var pawn = traverseParams.pawn;
-			if(pawn is null)
-			{
-				return false;
-			}
-			var cage = CompAssignableToPawn_Cage.FindCageFor(pawn);
-			if(cage is null)
-			{
-				return true;
-			}
-			if((peMode == PathEndMode.Touch || peMode == PathEndMode.ClosestTouch) && TouchPathEndModeUtility.
-				IsAdjacentOrInsideAndAllowedToTouch(start, dest, pawn.Map))
-			{
-				return true;
-			}
-			else if(dest.Cell.IsInside(cage))
-			{
-				return true;
-			}
-			return false;
 		}
 	}
 	public class WorkGiver_RescueToCage: WorkGiver_RescueDowned
@@ -258,6 +252,10 @@ namespace ZzZomboRW
 				});
 			this.AddFinishAction(delegate
 			{
+				if(this.pawn.carryTracker.CarriedThing is null)
+				{
+					return;
+				}
 				var cage = this.Cage;
 				var target = this.Takee;
 				var comp = cage.CageComp;
@@ -275,7 +273,7 @@ namespace ZzZomboRW
 							}
 						}
 						this.pawn.carryTracker.TryDropCarriedThing(this.pawn.Position, ThingPlaceMode.Direct, out var thing);
-						target.Notify_Teleported(false, true);
+						target.Notify_Teleported(false);
 						target.stances.CancelBusyStanceHard();
 						if(target.Downed || HealthAIUtility.ShouldSeekMedicalRest(target))
 						{
@@ -299,13 +297,16 @@ namespace ZzZomboRW
 						LessonAutoActivator.TeachOpportunity(ConceptDefOf.PrisonerTab, this.Takee, OpportunityType.GoodToKnow);
 					}
 				}
+				else
+				{
+					this.pawn.carryTracker.TryDropCarriedThing(this.pawn.Position, ThingPlaceMode.Direct, out var thing);
+				}
 			});
 			yield return Toils_Goto.GotoThing(TargetIndex.A, PathEndMode.ClosestTouch).
 				FailOnDespawnedNullOrForbidden(TargetIndex.A).
 				FailOnDespawnedNullOrForbidden(TargetIndex.B).
-				FailOn(() => !this.pawn.CanReach(this.Cage.InteractionCell, PathEndMode.OnCell, Danger.Deadly,
-					false, TraverseMode.ByPawn)).
-				FailOn(() => !this.Takee.Downed).
+				FailOn(() => !this.pawn.CanReach(this.Cage.InteractionCell, PathEndMode.OnCell, Danger.Deadly)).
+				FailOn(() => !(this.Takee.Downed || this.Takee.IsPrisonerOfColony)).
 				FailOnSomeonePhysicallyInteracting(TargetIndex.A);
 			var toil = Toils_Haul.StartCarryThing(TargetIndex.A).
 				FailOnDespawnedNullOrForbidden(TargetIndex.B);
@@ -314,13 +315,13 @@ namespace ZzZomboRW
 				var target = this.Takee;
 				if(!target.AnimalOrWildMan())
 				{
-					if(target.guest is null)
-					{
-						target.guest = new Pawn_GuestTracker(target);
-					}
 					if(this.Takee.playerSettings == null)
 					{
 						this.Takee.playerSettings = new Pawn_PlayerSettings(this.Takee);
+					}
+					if(target.guest is null)
+					{
+						target.guest = new Pawn_GuestTracker(target);
 					}
 					if(target.guest.Released is true)
 					{
@@ -335,7 +336,9 @@ namespace ZzZomboRW
 				}
 			}));
 			yield return toil;
-			yield return Toils_Goto.GotoCell(this.Cage.OccupiedRect().RandomCell, PathEndMode.ClosestTouch);
+			CellFinder.TryFindRandomReachableCellNear(this.Cage.Position, this.pawn.Map, 20, TraverseParms.For(this.pawn),
+				c => c.IsInside(this.Cage), null, out var spot);
+			yield return Toils_Goto.GotoCell(spot.IsValid ? spot : this.Cage.Position, PathEndMode.ClosestTouch);
 			yield return Toils_Reserve.Release(TargetIndex.A);
 			yield break;
 		}
@@ -348,8 +351,7 @@ namespace ZzZomboRW
 		}
 		public override bool ShouldSkip(Pawn pawn, bool forced = false)
 		{
-			var count = pawn.Map.GetComponent<MapComponent_Cage>()?.cages?.Count;
-			return count is null || count < 1;
+			return (pawn.Map.GetComponent<MapComponent_Cage>()?.cages.Count ?? 0) <= 0;
 		}
 		public override Job JobOnThing(Pawn pawn, Thing t, bool forced = false)
 		{
@@ -398,7 +400,7 @@ namespace ZzZomboRW
 		{
 			var mi = base.GetType().GetMethod("NutritionAvailableForFrom",
 				System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic);
-			if(target.carryTracker.CarriedThing != null && (float)mi.Invoke(null, new object[] {
+			if(target.carryTracker?.CarriedThing != null && (float)mi.Invoke(null, new object[] {
 				target, target.carryTracker.CarriedThing }) > 0f)
 			{
 				return true;

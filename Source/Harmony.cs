@@ -31,8 +31,18 @@ namespace ZzZomboRW
 				var cage = CompAssignableToPawn_Cage.FindCageFor(traverseParms.pawn);
 				if(cage != null)
 				{
-					result = cage.OccupiedRect().InRandomOrder().ToList().Find(cellValidator);
-					__result = regionValidator is null || regionValidator(result.GetRegion(map, RegionType.Set_Passable));
+					var cells = cage.OccupiedRect().InRandomOrder().ToList();
+					result = IntVec3.Invalid;
+					foreach(var c in cells)
+					{
+						if((cellValidator is null || cellValidator(c)) && (regionValidator is null ||
+							regionValidator(c.GetRegion(map, RegionType.Set_Passable))))
+						{
+							result = c;
+							break;
+						}
+					}
+					__result = result != IntVec3.Invalid;
 				}
 			}
 		}
