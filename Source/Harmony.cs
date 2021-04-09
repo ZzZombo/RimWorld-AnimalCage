@@ -24,7 +24,7 @@ namespace ZzZomboRW
 			private static void Postfix(ref bool __result, IntVec3 root, Map map, float radius, TraverseParms traverseParms,
 				Predicate<IntVec3> cellValidator, Predicate<Region> regionValidator, ref IntVec3 result, int maxRegions)
 			{
-				if(!__result || traverseParms.pawn is null)
+				if(!__result || map is null || traverseParms.pawn is null)
 				{
 					return;
 				}
@@ -393,12 +393,31 @@ namespace ZzZomboRW
 				{
 					return;
 				}
-				__result = t is Pawn target && CompAssignableToPawn_Cage.FindCageFor(target) != null &&
+				if(t is Pawn target && CompAssignableToPawn_Cage.FindCageFor(target) != null &&
 					!pawn.WorkTypeIsDisabled(WorkTypeDefOf.Doctor) &&
 					(!__instance.def.tendToHumanlikesOnly || target.RaceProps.Humanlike && !target.IsWildMan()) &&
 					(!__instance.def.tendToAnimalsOnly || target.AnimalOrWildMan()) &&
 					target.GetPosture() != PawnPosture.Standing && HealthAIUtility.ShouldBeTendedNowByPlayer(target) &&
-					pawn.CanReserve(target, 1, -1, null, forced);
+					pawn.CanReserve(target, 1, -1, null, forced))
+				{
+					__result = true;
+				}
+			}
+		}
+
+		[HarmonyPatch(typeof(WorkGiver_Tend), nameof(WorkGiver_Tend.GoodLayingStatusForTend), Priority.Last)]
+		public static class WorkGiver_Tend_GoodLayingStatusForTendPatch
+		{
+			private static void Postfix(ref bool __result, Pawn patient, Pawn doctor)
+			{
+				if(__result)
+				{
+					return;
+				}
+				if(CompAssignableToPawn_Cage.FindCageFor(patient) != null && patient.GetPosture() != PawnPosture.Standing)
+				{
+					__result = true;
+				}
 			}
 		}
 	}

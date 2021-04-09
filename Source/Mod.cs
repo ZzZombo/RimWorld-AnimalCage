@@ -256,10 +256,7 @@ namespace ZzZomboRW
 				FailOnAggroMentalStateAndHostile(TargetIndex.A).
 				FailOn(delegate ()
 				{
-					var cage = this.Cage;
-					var target = this.Takee;
-					var comp = cage.CageComp;
-					return !comp.AssignedPawnsForReading.Contains(target);
+					return !this.Cage.CageComp.AssignedPawnsForReading.Contains(this.Takee);
 				});
 			this.AddFinishAction(delegate
 			{
@@ -326,7 +323,7 @@ namespace ZzZomboRW
 				var target = this.Takee;
 				if(target.playerSettings == null)
 				{
-					target.playerSettings = new Pawn_PlayerSettings(this.Takee);
+					target.playerSettings = new Pawn_PlayerSettings(target);
 				}
 				if(!target.AnimalOrWildMan())
 				{
@@ -347,9 +344,7 @@ namespace ZzZomboRW
 				}
 			}));
 			yield return toil;
-			CellFinder.TryFindRandomReachableCellNear(this.Cage.Position, this.pawn.Map, 20, TraverseParms.For(this.pawn),
-				c => c.IsInside(this.Cage), null, out var spot);
-			yield return Toils_Goto.GotoCell(spot.IsValid ? spot : this.Cage.Position, PathEndMode.ClosestTouch);
+			yield return Toils_Goto.GotoCell(this.Cage.OccupiedRect().RandomCell, PathEndMode.ClosestTouch);
 			yield return Toils_Reserve.Release(TargetIndex.A);
 			yield break;
 		}
@@ -463,28 +458,25 @@ namespace ZzZomboRW
 		{
 			try
 			{
-				if(pawn.mindState.duty?.focus.HasThing is true)
+				var cage = CompAssignableToPawn_Cage.FindCageFor(pawn);
+				var success = cage != null && pawn.Position.GetEdifice(pawn.Map) is Building_Cage;
+				if(success != this.invert)
 				{
-					var success = pawn.mindState.duty?.focus.HasThing is true &&
-						pawn.Position.IsInside(pawn.mindState.duty.focus.Thing);
-					if(success != this.invert)
-					{
-						var area = pawn.mindState.duty.focus.Thing.OccupiedRect();
-						pawn.mindState.maxDistToSquadFlag = Math.Max(area.Width / 2, area.Height / 2);
-						return base.TryIssueJobPackage(pawn, jobParams);
-					}
-					else
-					{
-						pawn.mindState.maxDistToSquadFlag = -1;
-						return ThinkResult.NoJob;
-					}
+					var area = pawn.mindState.duty.focus.Thing.OccupiedRect();
+					pawn.mindState.maxDistToSquadFlag = Math.Max(area.Width / 2, area.Height / 2);
+					return base.TryIssueJobPackage(pawn, jobParams);
+				}
+				else
+				{
+					pawn.mindState.maxDistToSquadFlag = -1;
+					return ThinkResult.NoJob;
 				}
 			}
-			finally
+			catch
 			{
 				pawn.mindState.maxDistToSquadFlag = -1f;
+				return ThinkResult.NoJob;
 			}
-			return ThinkResult.NoJob;
 		}
 	}
 }
