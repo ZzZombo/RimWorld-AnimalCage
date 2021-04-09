@@ -347,7 +347,7 @@ namespace ZzZomboRW
 			yield break;
 		}
 	}
-	public class WorkGiver_Handler_DeliverFood: WorkGiver_Warden
+	public class WorkGiver_Handler_DeliverFood: WorkGiver_Warden_DeliverFood
 	{
 		public override IEnumerable<Thing> PotentialWorkThingsGlobal(Pawn pawn)
 		{
@@ -359,50 +359,50 @@ namespace ZzZomboRW
 		}
 		public override Job JobOnThing(Pawn pawn, Thing t, bool forced = false)
 		{
-			//Log.Message("[WorkGiver_Handler_DeliverFood] check #1.");
 			if(pawn is null || !(t is Pawn target) || CompAssignableToPawn_Cage.FindCageFor(target) is null ||
-				target.IsFormingCaravan() || !pawn.CanReach(pawn.InteractionCell, PathEndMode.ClosestTouch,
-				pawn.NormalMaxDanger()))
+				target.IsFormingCaravan() || t.Spawned && t.Map.designationManager.DesignationOn(t, DesignationDefOf.Slaughter)
+				!= null)
 			{
 				return null;
 			}
-			//Log.Message("[WorkGiver_Handler_DeliverFood] check #2.");
-			if(target.Downed || target.needs?.food is null || target.needs.food.CurLevelPercentage >=
+			if(target.needs?.food is null || target.needs.food.CurLevelPercentage >=
 				target.needs.food.PercentageThreshHungry + 0.04f)
 			{
 				return null;
 			}
-			//Log.Message("[WorkGiver_Handler_DeliverFood] check #3.");
-			if(FeedPatientUtility.ShouldBeFed(target))
-			{
-				return null;
-			}
-			//Log.Message("[WorkGiver_Handler_DeliverFood] check #4.");
 			if(!FoodUtility.TryFindBestFoodSourceFor(pawn, target, target.needs.food.CurCategory == HungerCategory.Starving,
 				out var thing, out var thingDef, false))
 			{
 				return null;
 			}
-			//Log.Message("[WorkGiver_Handler_DeliverFood] check #5.");
-			if(thing.PositionHeld.IsInPrisonCell(pawn.Map))
+			var spoonFeeding = target.GetPosture() != PawnPosture.Standing && HealthAIUtility.ShouldSeekMedicalRest(target) &&
+				(target.HostFaction == null || target.HostFaction == Faction.OfPlayer && (target.guest?.CanBeBroughtFood ?? true));
+			if(!spoonFeeding)
+			{
+				if(thing.PositionHeld.IsInPrisonCell(pawn.Map))
+				{
+					return null;
+				}
+				if(this.FoodAvailableInCageTo(target))
+				{
+					return null;
+				}
+			}
+			if(!pawn.CanReserveAndReach(target, PathEndMode.ClosestTouch, pawn.NormalMaxDanger(), ignoreOtherReservations: forced))
 			{
 				return null;
 			}
-			//Log.Message("[WorkGiver_Handler_DeliverFood] check #6.");
-			if(this.FoodAvailableInCageTo(target))
-			{
-				return null;
-			}
-			//Log.Message("[WorkGiver_Handler_DeliverFood] checks succeded, making a job.");
 			var nutrition = FoodUtility.GetNutrition(thing, thingDef);
-			var job = JobMaker.MakeJob(JobDefOf.DeliverFood, thing, target);
+			var job = JobMaker.MakeJob(spoonFeeding ? JobDefOf.FeedPatient : DefDatabase<JobDef>.GetNamed(
+				"ZzZomboRW_AnimalCage_DeliverFood"), thing, target);
 			job.count = FoodUtility.WillIngestStackCountOf(target, thingDef, nutrition);
 			job.targetC = RCellFinder.SpotToChewStandingNear(target, thing);
 			return job;
 		}
 		private bool FoodAvailableInCageTo(Pawn target)
 		{
-			var mi = base.GetType().GetMethod("NutritionAvailableForFrom",
+			//Log.Message("[FoodAvailableInCageTo] check #1.");
+			var mi = typeof(WorkGiver_Warden_DeliverFood).GetMethod("NutritionAvailableForFrom",
 				System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic);
 			if(target.carryTracker?.CarriedThing != null && (float)mi.Invoke(null, new object[] {
 				target, target.carryTracker.CarriedThing }) > 0f)
@@ -411,31 +411,85 @@ namespace ZzZomboRW
 			}
 			var wantedNutrition = 0f;
 			var availableNutrition = 0f;
-			var room = target.GetRoom(RegionType.Set_Passable);
 			var cage = CompAssignableToPawn_Cage.FindCageFor(target);
-			foreach(var region in room?.Regions ?? Enumerable.Empty<Region>())
+			//Log.Message($"[FoodAvailableInCageTo] check #2, {cage}.");
+			foreach(var c in cage.OccupiedRect())
 			{
-				foreach(var thing in region.ListerThings.ThingsInGroup(ThingRequestGroup.FoodSourceNotPlantOrTree))
+				foreach(var thing in c.GetThingList(cage.Map))
 				{
-					if((!thing.def.IsIngestible || thing.def.ingestible.preferability >
-							FoodPreferability.DesperateOnlyForHumanlikes) && thing.Position.IsInside(cage))
+					if(thing is Pawn pawn)
 					{
-						availableNutrition += (float)mi.Invoke(null, new object[] { target, thing });
+						//Log.Message($"[FoodAvailableInCageTo] check #3.");
+						if(CompAssignableToPawn_Cage.FindCageFor(pawn) == cage && pawn.needs?.food != null &&
+							pawn.needs.food.CurLevelPercentage < pawn.needs.food.PercentageThreshHungry + 0.02f &&
+							(pawn.carryTracker.CarriedThing is null || !pawn.WillEat(pawn.carryTracker.CarriedThing, null, true)))
+						{
+							wantedNutrition += pawn.needs.food.NutritionWanted;
+						}
 					}
-				}
-				foreach(var p in region.ListerThings.ThingsInGroup(ThingRequestGroup.Pawn))
-				{
-					var pawn = (Pawn)p;
-					if(pawn.IsPrisonerOfColony && pawn.needs?.food != null &&
-						pawn.needs.food.CurLevelPercentage < pawn.needs.food.PercentageThreshHungry + 0.02f &&
-						(pawn.carryTracker.CarriedThing is null || !pawn.WillEat(pawn.carryTracker.CarriedThing, null, true)) &&
-						pawn.Position.IsInside(cage))
+					else if(ThingRequestGroup.FoodSourceNotPlantOrTree.Includes(thing.def) &&
+						(!thing.def.IsIngestible || thing.def.ingestible.preferability >
+							FoodPreferability.DesperateOnlyForHumanlikes))
 					{
-						wantedNutrition += pawn.needs.food.NutritionWanted;
+						//Log.Message($"[FoodAvailableInCageTo] check #4, {target}, {thing}.");
+						availableNutrition += (float)mi.Invoke(null, new object[] { target, thing });
 					}
 				}
 			}
 			return availableNutrition + 0.5f >= wantedNutrition;
+		}
+	}
+	public class JobDriver_DeliverFood: JobDriver_FoodDeliver
+	{
+		private bool usingNutrientPasteDispenser;
+		private bool eatingFromInventory;
+		public override void Notify_Starting()
+		{
+			base.Notify_Starting();
+			this.usingNutrientPasteDispenser = this.TargetThingA is Building_NutrientPasteDispenser;
+			this.eatingFromInventory = this.pawn.inventory != null && this.pawn.inventory.Contains(this.TargetThingA);
+		}
+		protected override IEnumerable<Toil> MakeNewToils()
+		{
+			this.FailOnDespawnedOrNull(TargetIndex.B);
+			if(this.eatingFromInventory)
+			{
+				yield return Toils_Misc.TakeItemFromInventoryToCarrier(this.pawn, TargetIndex.A);
+			}
+			else if(this.usingNutrientPasteDispenser)
+			{
+				yield return Toils_Goto.GotoThing(TargetIndex.A, PathEndMode.InteractionCell).FailOnForbidden(TargetIndex.A);
+				yield return Toils_Ingest.TakeMealFromDispenser(TargetIndex.A, this.pawn);
+			}
+			else
+			{
+				yield return Toils_Ingest.ReserveFoodFromStackForIngesting(TargetIndex.A, (Pawn)this.TargetThingB);
+				yield return Toils_Goto.GotoThing(TargetIndex.A, PathEndMode.ClosestTouch).FailOnForbidden(TargetIndex.A);
+				yield return Toils_Ingest.PickupIngestible(TargetIndex.A, (Pawn)this.TargetThingB);
+			}
+			var toil2 = new Toil();
+			toil2.initAction = delegate ()
+			{
+				var actor = toil2.actor;
+				var curJob = actor.jobs.curJob;
+				actor.pather.StartPath(curJob.targetC, PathEndMode.OnCell);
+			};
+			toil2.defaultCompleteMode = ToilCompleteMode.PatherArrival;
+			toil2.FailOnDestroyedNullOrForbidden(TargetIndex.B);
+			toil2.AddFailCondition(delegate
+			{
+				var pawn = (Pawn)toil2.actor.jobs.curJob.targetB.Thing;
+				return CompAssignableToPawn_Cage.FindCageFor(pawn) is null || pawn.guest?.CanBeBroughtFood is false;
+			});
+			yield return toil2;
+			var toil = new Toil();
+			toil.initAction = delegate ()
+			{
+				this.pawn.carryTracker.TryDropCarriedThing(toil.actor.jobs.curJob.targetC.Cell, ThingPlaceMode.Direct, out var thing, null);
+			};
+			toil.defaultCompleteMode = ToilCompleteMode.Instant;
+			yield return toil;
+			yield break;
 		}
 	}
 	public class ThinkNode_Duty: ThinkNode

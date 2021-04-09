@@ -119,9 +119,15 @@
 		<defName>ZzZomboRW_AnimalCage_Capture</defName>
 		<driverClass>ZzZomboRW.JobDriver_TakeToCage</driverClass>
 		<reportString>capturing TargetA.</reportString>
-		<alwaysShowWeapon>false</alwaysShowWeapon>
+		<alwaysShowWeapon>true</alwaysShowWeapon>
 		<makeTargetPrisoner>true</makeTargetPrisoner>
 		<casualInterruptible>false</casualInterruptible>
+	</JobDef>
+	<JobDef>
+		<defName>ZzZomboRW_AnimalCage_DeliverFood</defName>
+		<driverClass>ZzZomboRW.JobDriver_DeliverFood</driverClass>
+		<reportString>feeding TargetA to TargetB.</reportString>
+		<allowOpportunisticPrefix>true</allowOpportunisticPrefix>
 	</JobDef>
 	<WorkGiverDef>
 		<defName>ZzZomboRW_AnimalCage_Capture</defName>

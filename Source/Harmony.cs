@@ -48,6 +48,23 @@ namespace ZzZomboRW
 			}
 		}
 
+		[HarmonyPatch(typeof(FoodUtility), nameof(FoodUtility.ShouldBeFedBySomeone), Priority.Last)]
+		public static class FoodUtility_ShouldBeFedBySomeonePatch
+		{
+			private static void Postfix(ref bool __result, Pawn pawn)
+			{
+				if(__result || pawn is null)
+				{
+					return;
+				}
+				if(CompAssignableToPawn_Cage.FindCageFor(pawn) != null)
+				{
+					__result = pawn.GetPosture() != PawnPosture.Standing && HealthAIUtility.ShouldSeekMedicalRest(pawn) &&
+						(pawn.HostFaction == null || pawn.HostFaction == Faction.OfPlayer && (pawn.guest?.CanBeBroughtFood ?? true));
+				}
+			}
+		}
+
 		[HarmonyPatch(typeof(ForbidUtility), nameof(ForbidUtility.CaresAboutForbidden), Priority.Last)]
 		public static class ForbidUtility_CaresAboutForbiddenPatch
 		{
@@ -300,6 +317,23 @@ namespace ZzZomboRW
 			}
 		}
 
+		[HarmonyPatch(typeof(PawnDownedWiggler), nameof(PawnDownedWiggler.WigglerTick), Priority.Last)]
+		public static class PawnDownedWiggler_WigglerTickPatch
+		{
+			private static void Prefix(Pawn ___pawn, PawnDownedWiggler __instance)
+			{
+				var pawn = ___pawn;
+				if(!pawn.Downed || !pawn.Spawned)
+				{
+					return;
+				}
+				if(CompAssignableToPawn_Cage.FindCageFor(pawn) != null)
+				{
+					__instance.ticksToIncapIcon = 200;
+				}
+			}
+		}
+
 		[HarmonyPriority(Priority.Last)]
 		[HarmonyPatch(typeof(Reachability), nameof(Reachability.CanReach), new Type[] { typeof(IntVec3),
 				typeof(LocalTargetInfo), typeof(PathEndMode), typeof(TraverseParms) })]
@@ -415,6 +449,34 @@ namespace ZzZomboRW
 			}
 		}
 
+		[HarmonyPriority(Priority.Last)]
+		[HarmonyPatch(typeof(SocialProperness), nameof(SocialProperness.IsSociallyProper), new Type[] {
+			typeof(Thing), typeof(Pawn), typeof(bool), typeof(bool) })]
+		public static class SocialProperness_IsSociallyProperPatch
+		{
+			private static void Postfix(ref bool __result, Thing t, Pawn p, bool forPrisoner, bool animalsCare)
+			{
+				if(p is null || !(t.def.socialPropernessMatters && t.Spawned))
+				{
+					return;
+				}
+				var position = t.def.hasInteractionCell ? t.InteractionCell : t.Position;
+				if(!position.IsInPrisonCell(t.MapHeld))
+				{
+					var cage1 = CompAssignableToPawn_Cage.FindCageFor(p);
+					var cage2 = t.Position.GetEdifice(t.Map) as Building_Cage;
+					if(cage1 == cage2)
+					{
+						__result = !animalsCare && p.AnimalOrWildMan() || cage1 is null != forPrisoner;
+					}
+					else
+					{
+						__result = !animalsCare && p.AnimalOrWildMan();
+					}
+				}
+			}
+		}
+
 		[HarmonyPatch(typeof(WorkGiver_Tend), nameof(WorkGiver_Tend.HasJobOnThing), Priority.Last)]
 		public static class WorkGiver_Tend_HasJobOnThingPatch
 		{
@@ -424,7 +486,6 @@ namespace ZzZomboRW
 				{
 					return;
 				}
-				var p = t as Pawn;
 				if(t is Pawn target && CompAssignableToPawn_Cage.FindCageFor(target) != null &&
 					!pawn.WorkTypeIsDisabled(WorkTypeDefOf.Doctor) &&
 					(!__instance.def.tendToHumanlikesOnly || target.RaceProps.Humanlike && !target.IsWildMan()) &&
