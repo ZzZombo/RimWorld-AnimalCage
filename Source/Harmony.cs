@@ -35,8 +35,9 @@ namespace ZzZomboRW
 					result = IntVec3.Invalid;
 					foreach(var c in cells)
 					{
-						if((cellValidator is null || cellValidator(c)) && (regionValidator is null ||
-							regionValidator(c.GetRegion(map, RegionType.Set_Passable))))
+						if(traverseParms.pawn.CanReach(c, PathEndMode.OnCell, Danger.Deadly) &&
+							(cellValidator is null || cellValidator(c)) &&
+							(regionValidator is null || regionValidator(c.GetRegion(map, RegionType.Set_Passable))))
 						{
 							result = c;
 							break;
@@ -56,8 +57,7 @@ namespace ZzZomboRW
 				{
 					return;
 				}
-				var cage = CompAssignableToPawn_Cage.FindCageFor(pawn);
-				if(cage != null)
+				if(CompAssignableToPawn_Cage.FindCageFor(pawn) != null)
 				{
 					__result = true;
 				}
@@ -110,8 +110,11 @@ namespace ZzZomboRW
 				{
 					return;
 				}
-				__result = !CompAssignableToPawn_Cage.Reachable(pawn.Position, c, PathEndMode.ClosestTouch, TraverseParms.For(
-					pawn, mode: TraverseMode.ByPawn));
+				if(CompAssignableToPawn_Cage.FindCageFor(pawn) != null)
+				{
+					__result = !CompAssignableToPawn_Cage.Reachable(pawn.Position, c, PathEndMode.ClosestTouch,
+						TraverseParms.For(pawn, mode: TraverseMode.ByPawn));
+				}
 			}
 		}
 
@@ -126,8 +129,11 @@ namespace ZzZomboRW
 				{
 					return;
 				}
-				__result = !CompAssignableToPawn_Cage.Reachable(pawn.Position, t, PathEndMode.ClosestTouch, TraverseParms.For(
-					pawn, mode: TraverseMode.ByPawn));
+				if(CompAssignableToPawn_Cage.FindCageFor(pawn) != null)
+				{
+					__result = !CompAssignableToPawn_Cage.Reachable(pawn.Position, t, PathEndMode.ClosestTouch,
+						TraverseParms.For(pawn, mode: TraverseMode.ByPawn));
+				}
 			}
 		}
 
@@ -144,7 +150,11 @@ namespace ZzZomboRW
 				{
 					return;
 				}
-				__result = CompAssignableToPawn_Cage.Reachable(root, __result, peMode, traverseParams) ? __result : null;
+				if(CompAssignableToPawn_Cage.FindCageFor(traverseParams.pawn) != null &&
+					!CompAssignableToPawn_Cage.Reachable(root, __result, peMode, traverseParams))
+				{
+					__result = null;
+				}
 			}
 		}
 
@@ -272,6 +282,24 @@ namespace ZzZomboRW
 			}
 		}
 
+		[HarmonyPatch(typeof(Pawn_HealthTracker), nameof(Pawn_HealthTracker.HasHediffsNeedingTendByPlayer), Priority.Last)]
+		public static class Pawn_HealthTracker_HasHediffsNeedingTendByPlayerPatch
+		{
+			private static void Postfix(ref bool __result, ref Pawn_HealthTracker __instance, ref Pawn ___pawn, bool forAlert)
+			{
+				if(__result || forAlert)
+				{
+					return;
+				}
+				var pawn = ___pawn;
+				if(pawn.AnimalOrWildMan() && pawn.GetPosture() != PawnPosture.Standing &&
+					__instance.HasHediffsNeedingTend(forAlert) && CompAssignableToPawn_Cage.FindCageFor(pawn) != null)
+				{
+					__result = true;
+				}
+			}
+		}
+
 		[HarmonyPriority(Priority.Last)]
 		[HarmonyPatch(typeof(Reachability), nameof(Reachability.CanReach), new Type[] { typeof(IntVec3),
 				typeof(LocalTargetInfo), typeof(PathEndMode), typeof(TraverseParms) })]
@@ -286,7 +314,10 @@ namespace ZzZomboRW
 				}
 				//Log.Warning($"[Reachability_CanReachPatch] {pawn} at {pawn.Position} inside {CompAssignableToPawn_Cage.FindCageFor(pawn)} " +
 				//	$"attempted to reach {dest} ({dest.Cell}) from {start} with job `{pawn.CurJob}` and `peMode`={peMode}.");
-				__result = CompAssignableToPawn_Cage.Reachable(start, dest, peMode, traverseParams);
+				if(CompAssignableToPawn_Cage.FindCageFor(traverseParams.pawn) != null)
+				{
+					__result = CompAssignableToPawn_Cage.Reachable(start, dest, peMode, traverseParams);
+				}
 			}
 		}
 
@@ -314,8 +345,7 @@ namespace ZzZomboRW
 				{
 					return;
 				}
-				var cage = CompAssignableToPawn_Cage.FindCageFor(traveler);
-				if(cage != null)
+				if(CompAssignableToPawn_Cage.FindCageFor(traveler) != null)
 				{
 					__result = CompAssignableToPawn_Cage.Reachable(traveler.Position, thing, peMode, TraverseParms.For(traveler,
 						mode: TraverseMode.ByPawn));
@@ -326,13 +356,13 @@ namespace ZzZomboRW
 		[HarmonyPatch(typeof(RegionCostCalculator), "PreciseRegionLinkDistancesNeighborsGetter", Priority.Last)]
 		public static class RegionCostCalculator_PathableNeighborIndicesPatch
 		{
-			private static (Building_Bed, IntVec3) CageOnCell(int index, Map map)
+			private static (Building_Cage, IntVec3) CageOnCell(int index, Map map)
 			{
 				var cell = map.cellIndices.IndexToCell(index);
 				var building = cell.GetEdifice(map);
-				if(building is Building_Bed cage)
+				if(building is Building_Cage cage)
 				{
-					var comp = cage.GetComp<CompAssignableToPawn_Cage>();
+					var comp = cage.CageComp;
 					if(!(comp is null))
 					{
 						return (cage, cell);
@@ -340,14 +370,15 @@ namespace ZzZomboRW
 				}
 				return (null, cell);
 			}
-			private static void Postfix(ref IEnumerable<int> __result, RegionCostCalculator __instance, int node, Region region)
+			private static void Postfix(ref IEnumerable<int> __result, RegionCostCalculator __instance, Map ___map,
+				int node, Region region)
 			{
-				var map = new Traverse(__instance).Field("map").GetValue<Map>();
 				//Log.Warning($"[RegionCostCalculator_PathableNeighborIndicesPatch] {__instance}, {map}, {__result}).", true);
 				if(__result is null)
 				{
 					return;
 				}
+				var map = ___map;
 				var (cage1, cell1) = CageOnCell(node, map);
 				var result = new List<int>(8);
 				foreach(var idx in __result)
@@ -393,6 +424,7 @@ namespace ZzZomboRW
 				{
 					return;
 				}
+				var p = t as Pawn;
 				if(t is Pawn target && CompAssignableToPawn_Cage.FindCageFor(target) != null &&
 					!pawn.WorkTypeIsDisabled(WorkTypeDefOf.Doctor) &&
 					(!__instance.def.tendToHumanlikesOnly || target.RaceProps.Humanlike && !target.IsWildMan()) &&

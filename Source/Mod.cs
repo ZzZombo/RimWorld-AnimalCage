@@ -316,35 +316,33 @@ namespace ZzZomboRW
 				FailOn(() => !this.pawn.CanReach(this.Cage.InteractionCell, PathEndMode.OnCell, Danger.Deadly)).
 				FailOn(() => !(this.Takee.Downed || this.Takee.IsPrisonerOfColony)).
 				FailOnSomeonePhysicallyInteracting(TargetIndex.A);
-			var toil = Toils_Haul.StartCarryThing(TargetIndex.A).
+			yield return Toils_Haul.StartCarryThing(TargetIndex.A).
 				FailOnDespawnedNullOrForbidden(TargetIndex.B);
-			toil.AddPreInitAction(new Action(() =>
-			{
-				var target = this.Takee;
-				if(target.playerSettings == null)
-				{
-					target.playerSettings = new Pawn_PlayerSettings(target);
-				}
-				if(!target.AnimalOrWildMan())
-				{
-					if(target.guest is null)
-					{
-						target.guest = new Pawn_GuestTracker(target);
-					}
-					if(target.guest.Released is true)
-					{
-						target.guest.Released = false;
-						target.guest.interactionMode = PrisonerInteractionModeDefOf.ReduceResistance;
-						GenGuest.RemoveHealthyPrisonerReleasedThoughts(target);
-					}
-					if(!target.IsPrisonerOfColony)
-					{
-						target.guest.CapturedBy(Faction.OfPlayer, this.pawn);
-					}
-				}
-			}));
-			yield return toil;
 			yield return Toils_Goto.GotoCell(this.Cage.OccupiedRect().RandomCell, PathEndMode.ClosestTouch);
+			yield return new Toil
+			{
+				initAction = delegate ()
+				{
+					var target = this.Takee;
+					if(target.playerSettings is null)
+					{
+						target.playerSettings = new Pawn_PlayerSettings(target);
+					}
+					if(target.guest != null)
+					{
+						if(target.guest.Released is true)
+						{
+							target.guest.Released = false;
+							target.guest.interactionMode = PrisonerInteractionModeDefOf.ReduceResistance;
+							GenGuest.RemoveHealthyPrisonerReleasedThoughts(target);
+						}
+						if(!target.IsPrisonerOfColony)
+						{
+							target.guest.CapturedBy(Faction.OfPlayer, this.pawn);
+						}
+					}
+				}
+			};
 			yield return Toils_Reserve.Release(TargetIndex.A);
 			yield break;
 		}
@@ -430,7 +428,7 @@ namespace ZzZomboRW
 					var pawn = (Pawn)p;
 					if(pawn.IsPrisonerOfColony && pawn.needs?.food != null &&
 						pawn.needs.food.CurLevelPercentage < pawn.needs.food.PercentageThreshHungry + 0.02f &&
-						(pawn.carryTracker.CarriedThing == null || !pawn.WillEat(pawn.carryTracker.CarriedThing, null, true)) &&
+						(pawn.carryTracker.CarriedThing is null || !pawn.WillEat(pawn.carryTracker.CarriedThing, null, true)) &&
 						pawn.Position.IsInside(cage))
 					{
 						wantedNutrition += pawn.needs.food.NutritionWanted;
