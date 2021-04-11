@@ -103,8 +103,8 @@ namespace ZzZomboRW
 			}
 			var command_Toggle = new Command_Toggle
 			{
-				defaultLabel = "ZzZomboRW_AnimalCage_AssignToCageLabel".Translate(),
-				defaultDesc = "ZzZomboRW_AnimalCage_AssignToCageDesc".Translate(),
+				defaultLabel = "ZzZomboRW_AnimalCage_OutsidersToggleLabel".Translate(),
+				defaultDesc = "ZzZomboRW_AnimalCage_OutsidersToggleDesc".Translate(),
 				icon = ContentFinder<Texture2D>.Get("UI/Commands/ForPrisoners", true),
 				isActive = () => this.forPrisoners,
 				toggleAction = delegate ()
@@ -148,13 +148,13 @@ namespace ZzZomboRW
 		{
 			get
 			{
-				var bed = this.parent as Building_Cage;
-				return !(bed?.Spawned is true)
+				var cage = this.parent as Building_Cage;
+				return !(cage?.Spawned is true)
 					? Enumerable.Empty<Pawn>()
 					: this.parent.Map.mapPawns.AllPawnsSpawned.FindAll(pawn =>
 						pawn.BodySize <= this.parent.def.building.bed_maxBodySize &&
 						pawn.AnimalOrWildMan() != this.parent.def.building.bed_humanlike &&
-						pawn.Faction == bed.Faction != bed.forPrisoners);
+						pawn.Faction == cage.Faction != cage.forPrisoners);
 			}
 		}
 		protected override void SortAssignedPawns()
@@ -167,17 +167,14 @@ namespace ZzZomboRW
 			{
 				this.TryUnassignPawn(this.AssignedPawnsForReading[0]);
 			}
-			foreach(var cage in pawn?.MapHeld?.GetComponent<MapComponent_Cage>()?.cages ?? Enumerable.Empty<Building_Cage>())
+			foreach(var cage in pawn?.MapHeld?.CagesOnMap() ?? Enumerable.Empty<Building_Cage>())
 			{
-				cage.CageComp?.TryUnassignPawn(pawn);
+				cage.CageComp.TryUnassignPawn(pawn);
 			}
 			base.TryAssignPawn(pawn);
 		}
-		protected override string GetAssignmentGizmoLabel()
-		{
-			//FIXME: Update the translation key.
-			return "CommandThingSetOwnerLabel".Translate();
-		}
+		protected override string GetAssignmentGizmoLabel() => "ZzZomboRW_AnimalCage_AssignToCageLabel".Translate();
+		protected override string GetAssignmentGizmoDesc() => "ZzZomboRW_AnimalCage_AssignToCageDesc".Translate();
 	}
 	public class WorkGiver_RescueToCage: WorkGiver_RescueDowned
 	{
@@ -187,7 +184,6 @@ namespace ZzZomboRW
 		}
 		public override bool ShouldSkip(Pawn pawn, bool forced = false)
 		{
-			//Log.Message($"[WorkGiver_RescueToCage.ShouldSkip] {pawn}, {!pawn.Map.mapPawns.AllPawnsSpawned.Any(p => p.Downed && CompAssignableToPawn_Cage.FindCageFor(p) is null)}.");
 			return !pawn.Map.mapPawns.AllPawnsSpawned.Any(p => this.HasJobOnThing(pawn, p, forced));
 		}
 		public override bool HasJobOnThing(Pawn pawn, Thing t, bool forced = false)
@@ -199,6 +195,10 @@ namespace ZzZomboRW
 			var result = false;
 			if(t is Pawn target)
 			{
+				if(target.InAggroMentalState || !target.Downed && target.HostileTo(pawn))
+				{
+					return false;
+				}
 				var cage = target.FindCage(pawn.Faction);
 				if(cage != null)
 				{
@@ -206,8 +206,8 @@ namespace ZzZomboRW
 				}
 				else if(target.HasAssignedCagesIn(pawn.Faction))
 				{
-					result = target.Downed || target.guest?.HostFaction == pawn.Faction || target.RaceProps.Animal &&
-						target.Faction == cage.Faction;
+					result = target.Downed || target.IsPrisoner && target.guest?.HostFaction == pawn.Faction ||
+						target.RaceProps.Animal && target.Faction == pawn.Faction;
 				}
 			}
 			return result && pawn.CanReserve(t, ignoreOtherReservations: forced);
@@ -301,8 +301,9 @@ namespace ZzZomboRW
 			yield return Toils_Goto.GotoThing(TargetIndex.A, PathEndMode.ClosestTouch).
 				FailOnDespawnedNullOrForbidden(TargetIndex.A).
 				FailOnDespawnedNullOrForbidden(TargetIndex.B).
-				FailOn(() => !this.pawn.CanReach(this.Cage.InteractionCell, PathEndMode.OnCell, Danger.Deadly)).
-				FailOn(() => !(this.Takee.Downed || this.Takee.IsPrisonerOfColony)).
+				FailOn(() => !this.pawn.CanReach(this.Cage.EntranceCell, PathEndMode.OnCell, Danger.Deadly)).
+				FailOn(() => !(this.Takee.Downed || this.Takee.IsPrisoner && this.Takee.guest?.HostFaction == pawn.Faction ||
+					this.Takee.RaceProps.Animal && this.Takee.Faction == pawn.Faction)).
 				FailOnSomeonePhysicallyInteracting(TargetIndex.A);
 			yield return Toils_Haul.StartCarryThing(TargetIndex.A).
 				FailOnDespawnedNullOrForbidden(TargetIndex.B);
@@ -367,7 +368,7 @@ namespace ZzZomboRW
 				(target.HostFaction == null || target.HostFaction == Faction.OfPlayer && (target.guest?.CanBeBroughtFood ?? true));
 			if(!spoonFeeding)
 			{
-				if(thing.PositionHeld.IsInPrisonCell(pawn.Map))
+				if(!thing.IsSociallyProper(target) || !thing.IsSociallyProper(pawn))
 				{
 					return null;
 				}
