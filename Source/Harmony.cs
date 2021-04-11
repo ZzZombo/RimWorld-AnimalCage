@@ -24,24 +24,21 @@ namespace ZzZomboRW
 			private static void Postfix(ref bool __result, IntVec3 root, Map map, float radius, TraverseParms traverseParms,
 				Predicate<IntVec3> cellValidator, Predicate<Region> regionValidator, ref IntVec3 result, int maxRegions)
 			{
-				if(!__result || map is null || traverseParms.pawn is null)
+				if(!__result || map is null || traverseParms.pawn is null || !traverseParms.pawn.IsCaptiveOf(null))
 				{
 					return;
 				}
-				var cage = CompAssignableToPawn_Cage.FindCageFor(traverseParms.pawn);
-				if(cage != null)
+				var cage = traverseParms.pawn.CurrentCage();
+				var cells = cage.OccupiedRect().InRandomOrder().ToList();
+				result = IntVec3.Invalid;
+				foreach(var c in cells)
 				{
-					var cells = cage.OccupiedRect().InRandomOrder().ToList();
-					result = IntVec3.Invalid;
-					foreach(var c in cells)
+					if(traverseParms.pawn.CanReach(c, PathEndMode.OnCell, Danger.Deadly) &&
+						(cellValidator is null || cellValidator(c)) &&
+						(regionValidator is null || regionValidator(c.GetRegion(map, RegionType.Set_Passable))))
 					{
-						if(traverseParms.pawn.CanReach(c, PathEndMode.OnCell, Danger.Deadly) &&
-							(cellValidator is null || cellValidator(c)) &&
-							(regionValidator is null || regionValidator(c.GetRegion(map, RegionType.Set_Passable))))
-						{
-							result = c;
-							break;
-						}
+						result = c;
+						break;
 					}
 					__result = result != IntVec3.Invalid;
 				}
@@ -57,7 +54,7 @@ namespace ZzZomboRW
 				{
 					return;
 				}
-				if(CompAssignableToPawn_Cage.FindCageFor(pawn) != null)
+				if(pawn.FindCage(null) != null)
 				{
 					__result = pawn.GetPosture() != PawnPosture.Standing && HealthAIUtility.ShouldSeekMedicalRest(pawn) &&
 						(pawn.HostFaction == null || pawn.HostFaction == Faction.OfPlayer && (pawn.guest?.CanBeBroughtFood ?? true));
@@ -74,7 +71,7 @@ namespace ZzZomboRW
 				{
 					return;
 				}
-				if(CompAssignableToPawn_Cage.FindCageFor(pawn) != null)
+				if(pawn.IsCaptiveOf(null))
 				{
 					__result = true;
 				}
@@ -90,10 +87,9 @@ namespace ZzZomboRW
 				{
 					return;
 				}
-				var cage = CompAssignableToPawn_Cage.FindCageFor(forPawn);
-				if(cage != null)
+				if(forPawn.IsCaptiveOf(null))
 				{
-					__result = CompAssignableToPawn_Cage.Reachable(forPawn.Position, c, PathEndMode.OnCell,
+					__result = CageUtility.Reachable(forPawn.Position, c, PathEndMode.OnCell,
 						TraverseParms.For(forPawn, mode: TraverseMode.ByPawn));
 				}
 			}
@@ -108,7 +104,7 @@ namespace ZzZomboRW
 				{
 					return;
 				}
-				var cage = CompAssignableToPawn_Cage.FindCageFor(pawn);
+				var cage = pawn.IsCaptiveOf(null) ? pawn.CurrentCage() : null;
 				if(cage != null)
 				{
 					__result = r != cage.GetRegion();
@@ -127,9 +123,9 @@ namespace ZzZomboRW
 				{
 					return;
 				}
-				if(CompAssignableToPawn_Cage.FindCageFor(pawn) != null)
+				if(pawn.IsCaptiveOf(null))
 				{
-					__result = !CompAssignableToPawn_Cage.Reachable(pawn.Position, c, PathEndMode.ClosestTouch,
+					__result = !CageUtility.Reachable(pawn.Position, c, PathEndMode.ClosestTouch,
 						TraverseParms.For(pawn, mode: TraverseMode.ByPawn));
 				}
 			}
@@ -146,9 +142,9 @@ namespace ZzZomboRW
 				{
 					return;
 				}
-				if(CompAssignableToPawn_Cage.FindCageFor(pawn) != null)
+				if(pawn.IsCaptiveOf(null))
 				{
-					__result = !CompAssignableToPawn_Cage.Reachable(pawn.Position, t, PathEndMode.ClosestTouch,
+					__result = !CageUtility.Reachable(pawn.Position, t, PathEndMode.ClosestTouch,
 						TraverseParms.For(pawn, mode: TraverseMode.ByPawn));
 				}
 			}
@@ -167,8 +163,7 @@ namespace ZzZomboRW
 				{
 					return;
 				}
-				if(CompAssignableToPawn_Cage.FindCageFor(traverseParams.pawn) != null &&
-					!CompAssignableToPawn_Cage.Reachable(root, __result, peMode, traverseParams))
+				if(traverseParams.pawn.IsCaptiveOf(null) && !CageUtility.Reachable(root, __result, peMode, traverseParams))
 				{
 					__result = null;
 				}
@@ -180,86 +175,66 @@ namespace ZzZomboRW
 				typeof(LocalTargetInfo), typeof(TraverseParms), typeof(PathEndMode) })]
 		public static class PathFinder_FindPathPatch
 		{
-			public static Building_Cage CageOnCell(IntVec3 cell, Map map)
-			{
-				var edifice = cell.GetEdifice(map);
-				if(edifice is Building_Cage cage)
-				{
-					var comp = cage.GetComp<CompAssignableToPawn_Cage>();
-					if(!(comp is null))
-					{
-						return cage;
-					}
-				}
-				return null;
-			}
-			private static void Prefix(PathFinder __instance, ref Building_Cage[] __state,
-							Map ___map, ref IntVec3 start, ref LocalTargetInfo dest, TraverseParms traverseParms, PathEndMode peMode)
+			private static void Prefix(ref Building_Cage[] __state, Map ___map, ref IntVec3 start, ref LocalTargetInfo dest,
+				TraverseParms traverseParms, PathEndMode peMode)
 			{
 				if(traverseParms.pawn is null)
 				{
 					return;
 				}
 				var map = ___map;
-				var cage1 = CageOnCell(start, map);
+				(var cage1, var cage2) = (start.CageHere(map), dest.Cell.CageHere(map));
+				__state = new Building_Cage[] { cage1, cage2 };
+				foreach(var cage in map.CagesOnMap())
+				{
+					if(cage1 != cage && cage2 != cage)
+					{
+						cage.isBlocking = true;
+					}
+				}
 				if(cage1 != null && (peMode == PathEndMode.Touch || peMode == PathEndMode.ClosestTouch) &&
 					TouchPathEndModeUtility.IsAdjacentOrInsideAndAllowedToTouch(start, dest, traverseParms.pawn.Map))
 				{
 					dest = dest.Cell.ClampInsideRect(cage1.OccupiedRect());
 					return;
 				}
-				var cage2 = CageOnCell(dest.Cell, map);
 				if(cage1 == cage2)
 				{
-					if(cage1 is Building_Cage _cage)
+					if(cage1 != null)
 					{
-						_cage.pathCost = 0;
+						cage1.pathCost = 0;
 					}
 					return;
 				}
-				__state = new Building_Cage[] { cage1 as Building_Cage, cage2 as Building_Cage };
 				if(cage1 != null)
 				{
 					var spot1 = cage1.InteractionCell;
-					var spot2 = new IntVec3(spot1.ToVector3()).ClampInsideRect(cage1.OccupiedRect());
-					//var s = $"[PF1 (prefix)] `{cage1}`!=`{cage2}`, start={start}, dest={dest}, spot1={spot1}, spot2=";
+					var spot2 = cage1.EntranceCell;
 					dest = start == spot2 ? spot1 : spot2;
-					//s += $"{dest}.";
-					//Log.Message(s);
-					if(cage1 is Building_Cage _cage)
-					{
-						_cage.pathCost = 0;
-					}
+					cage1.pathCost = 0;
 				}
 				else
 				{
 					var spot1 = cage2.InteractionCell;
-					//var s = $"[PF2 (prefix)] `{cage1}`!=`{cage2}`, start={start}, dest={dest}, spot1={spot1}, spot2=";
-					dest = start == spot1 ? new IntVec3(spot1.ToVector3()).ClampInsideRect(cage2.OccupiedRect()) : spot1;
-					//s += $"{dest}.";
-					//Log.Message(s);
-					if(cage2 is Building_Cage _cage)
-					{
-						_cage.pathCost = 8000;
-					}
+					dest = start == spot1 ? cage2.EntranceCell : spot1;
+					cage2.pathCost = 8000;
 				}
 			}
-			private static void Postfix(ref PawnPath __result, PathFinder __instance, ref
-				Building_Cage[] __state, IntVec3 start, LocalTargetInfo dest, TraverseParms traverseParms, PathEndMode peMode)
+			private static void Postfix(ref PawnPath __result, ref Building_Cage[] __state, Map ___map, IntVec3 start, LocalTargetInfo
+				dest, TraverseParms traverseParms, PathEndMode peMode)
 			{
 				if(traverseParms.pawn is null)
 				{
 					return;
 				}
 				var (cage1, cage2) = (__state?[0], __state?[1]);
-				//Log.Message($"[PF (postfix)] result={__result}, cage1={cage1}, cage2={cage2}.");
 				if(cage1 != cage2)
 				{
 					var cage = cage1 ?? cage2;
-					if(cage1 != null && cage1 == CompAssignableToPawn_Cage.FindCageFor(traverseParms.pawn))
+					if(cage1 != null && traverseParms.pawn.IsCaptiveOf(cage1.Faction))
 					{
-						Log.Warning($"[PF (postfix)] Attempt to leave cage prevented: {traverseParms.pawn}, cage1={cage1}," +
-							$" cage2={cage2}, job=`{traverseParms.pawn.CurJob}`, result={__result}.");
+						Log.Warning($"[PF (postfix)] Attempt to leave cage prevented: {traverseParms.pawn}, cage1=`{cage1}`," +
+							$" cage2=`{cage2}`, job=`{traverseParms.pawn.CurJob}`, result={__result}.");
 						__result.ReleaseToPool();
 						__result = PawnPath.NotFound;
 					}
@@ -271,7 +246,7 @@ namespace ZzZomboRW
 						/// Instead I just insert the two entrance cells into the returned path as appropriate.
 						//Log.Message($"[PF (postfix)] {dest}!={(LocalTargetInfo)start}, patching the path.");
 						var spot1 = cage.InteractionCell;
-						var spot2 = new IntVec3(spot1.ToVector3()).ClampInsideRect(cage.OccupiedRect());
+						var spot2 = cage.EntranceCell;
 						var newNodes = new List<IntVec3> { spot2, spot1 };
 						//Log.Message($"[PF (postfix)] pawn pos.={traverseParms.pawn.Position} (start={start}), interact. cell={newNodes[1]}, entran. cell={newNodes[0]}.");
 						newNodes.RemoveAll((c) => c == start);
@@ -289,12 +264,10 @@ namespace ZzZomboRW
 						//Log.Message($"[PF (postfix)] {__result}, [{string.Join(", ", nodes)}], patching the path complete.");
 					}
 				}
-				foreach(var cage in __state ?? Enumerable.Empty<Building_Cage>())
+				foreach(var cage in ___map.CagesOnMap())
 				{
-					if(cage != null)
-					{
-						cage.pathCost = 8000;
-					}
+					cage.pathCost = 8000;
+					cage.isBlocking = false;
 				}
 			}
 		}
@@ -310,7 +283,7 @@ namespace ZzZomboRW
 				}
 				var pawn = ___pawn;
 				if(pawn.AnimalOrWildMan() && pawn.GetPosture() != PawnPosture.Standing &&
-					__instance.HasHediffsNeedingTend(forAlert) && CompAssignableToPawn_Cage.FindCageFor(pawn) != null)
+					__instance.HasHediffsNeedingTend(forAlert) && pawn.IsCaptiveOf(Faction.OfPlayer))
 				{
 					__result = true;
 				}
@@ -327,7 +300,7 @@ namespace ZzZomboRW
 				{
 					return;
 				}
-				if(CompAssignableToPawn_Cage.FindCageFor(pawn) != null)
+				if(pawn.IsCaptiveOf(null))
 				{
 					__instance.ticksToIncapIcon = 200;
 				}
@@ -346,11 +319,9 @@ namespace ZzZomboRW
 				{
 					return;
 				}
-				//Log.Warning($"[Reachability_CanReachPatch] {pawn} at {pawn.Position} inside {CompAssignableToPawn_Cage.FindCageFor(pawn)} " +
-				//	$"attempted to reach {dest} ({dest.Cell}) from {start} with job `{pawn.CurJob}` and `peMode`={peMode}.");
-				if(CompAssignableToPawn_Cage.FindCageFor(traverseParams.pawn) != null)
+				if(traverseParams.pawn.IsCaptiveOf(null))
 				{
-					__result = CompAssignableToPawn_Cage.Reachable(start, dest, peMode, traverseParams);
+					__result = CageUtility.Reachable(start, dest, peMode, traverseParams);
 				}
 			}
 		}
@@ -360,12 +331,12 @@ namespace ZzZomboRW
 		{
 			private static bool Prefix(ref IntVec3 __result, Pawn pawn, Thing ingestible)
 			{
-				var cage = CompAssignableToPawn_Cage.FindCageFor(pawn);
-				if(cage is null)
+				if(!pawn.IsCaptiveOf(null))
 				{
 					return true;
 				}
-				__result = cage.OccupiedRect().RandomCell;
+				CellFinder.TryFindRandomReachableCellNear(pawn.PositionHeld, pawn.MapHeld, 20, TraverseParms.For(pawn),
+					null, null, out __result);
 				return false;
 			}
 		}
@@ -379,15 +350,14 @@ namespace ZzZomboRW
 				{
 					return;
 				}
-				if(CompAssignableToPawn_Cage.FindCageFor(traveler) != null)
+				if(traveler.IsCaptiveOf(null))
 				{
-					__result = CompAssignableToPawn_Cage.Reachable(traveler.Position, thing, peMode, TraverseParms.For(traveler,
-						mode: TraverseMode.ByPawn));
+					__result = CageUtility.Reachable(traveler.Position, thing, peMode, TraverseParms.For(traveler));
 				}
 			}
 		}
 
-		[HarmonyPatch(typeof(RegionCostCalculator), "PreciseRegionLinkDistancesNeighborsGetter", Priority.Last)]
+		[HarmonyPatch(typeof(RegionCostCalculator), "PathableNeighborIndices", Priority.Last)]
 		public static class RegionCostCalculator_PathableNeighborIndicesPatch
 		{
 			private static (Building_Cage, IntVec3) CageOnCell(int index, Map map)
@@ -396,16 +366,12 @@ namespace ZzZomboRW
 				var building = cell.GetEdifice(map);
 				if(building is Building_Cage cage)
 				{
-					var comp = cage.CageComp;
-					if(!(comp is null))
-					{
-						return (cage, cell);
-					}
+					return (cage, cell);
 				}
 				return (null, cell);
 			}
 			private static void Postfix(ref IEnumerable<int> __result, RegionCostCalculator __instance, Map ___map,
-				int node, Region region)
+				int index)
 			{
 				//Log.Warning($"[RegionCostCalculator_PathableNeighborIndicesPatch] {__instance}, {map}, {__result}).", true);
 				if(__result is null)
@@ -413,7 +379,7 @@ namespace ZzZomboRW
 					return;
 				}
 				var map = ___map;
-				var (cage1, cell1) = CageOnCell(node, map);
+				var (cage1, cell1) = CageOnCell(index, map);
 				var result = new List<int>(8);
 				foreach(var idx in __result)
 				{
@@ -427,7 +393,7 @@ namespace ZzZomboRW
 					{
 						if(cage1 != null)
 						{
-							var spot = cage1.InteractionCell.ClampInsideRect(cage1.OccupiedRect());
+							var spot = cage1.EntranceCell;
 							if(cell1 == spot && cell2 == cage1.InteractionCell ||
 								cell2 == spot && cell1 == cage1.InteractionCell)
 							{
@@ -436,7 +402,7 @@ namespace ZzZomboRW
 						}
 						else
 						{
-							var spot = cage2.InteractionCell.ClampInsideRect(cage2.OccupiedRect());
+							var spot = cage2.EntranceCell;
 							if(cell1 == spot && cell2 == cage1.InteractionCell ||
 								cell2 == spot && cell1 == cage1.InteractionCell)
 							{
@@ -463,8 +429,8 @@ namespace ZzZomboRW
 				var position = t.def.hasInteractionCell ? t.InteractionCell : t.Position;
 				if(!position.IsInPrisonCell(t.MapHeld))
 				{
-					var cage1 = CompAssignableToPawn_Cage.FindCageFor(p);
-					var cage2 = t.Position.GetEdifice(t.Map) as Building_Cage;
+					var cage1 = p.IsCaptiveOf(null) ? p.CurrentCage() : null;
+					var cage2 = t.Position.CageHere(t.MapHeld);
 					if(cage1 == cage2)
 					{
 						__result = !animalsCare && p.AnimalOrWildMan() || cage1 is null != forPrisoner;
@@ -486,7 +452,7 @@ namespace ZzZomboRW
 				{
 					return;
 				}
-				if(t is Pawn target && CompAssignableToPawn_Cage.FindCageFor(target) != null &&
+				if(t is Pawn target && target.IsCaptiveOf(pawn.Faction) &&
 					!pawn.WorkTypeIsDisabled(WorkTypeDefOf.Doctor) &&
 					(!__instance.def.tendToHumanlikesOnly || target.RaceProps.Humanlike && !target.IsWildMan()) &&
 					(!__instance.def.tendToAnimalsOnly || target.AnimalOrWildMan()) &&
@@ -507,7 +473,7 @@ namespace ZzZomboRW
 				{
 					return;
 				}
-				if(CompAssignableToPawn_Cage.FindCageFor(patient) != null && patient.GetPosture() != PawnPosture.Standing)
+				if(patient.IsCaptiveOf(doctor.Faction) && patient.GetPosture() != PawnPosture.Standing)
 				{
 					__result = true;
 				}

@@ -16,23 +16,22 @@ internal static class MOD
 
 namespace ZzZomboRW
 {
-	public class MapComponent_Cage: MapComponent
+	public static class CageUtility
 	{
-		public List<Building_Cage> cages = new List<Building_Cage>(0);
-		public MapComponent_Cage(Map map) : base(map) { }
-		public bool HasFreeCagesFor(Pawn target) => this.FindCageFor(target, false) != null;
-		public Building_Cage FindCageFor(Pawn pawn, bool onlyIfInside = true)
+		public static IEnumerable<Building_Cage> CagesOnMap(this Map map) => map?.GetComponent<MapComponent_Cage>()?.
+			cages ?? Enumerable.Empty<Building_Cage>();
+		public static bool HasAssignedCagesIn(this Pawn pawn, Faction captors) => pawn?.FindCage(captors, false) != null;
+		public static Building_Cage FindCage(this Pawn pawn, Faction captors, bool onlyIfInside = true)
 		{
-			if(pawn is null)
+			if(pawn?.MapHeld is null)
 			{
 				return null;
 			}
-			foreach(var cage in this.cages)
+			foreach(var cage in pawn.MapHeld.CagesOnMap())
 			{
-				var comp = cage.CageComp;
-				if(comp != null)
+				if(captors is null || cage.Faction == captors)
 				{
-					if(comp.AssignedPawnsForReading.Contains(pawn) &&
+					if(cage.CageComp?.AssignedPawnsForReading.Contains(pawn) is true &&
 						(!onlyIfInside || pawn.Position.IsInside(cage)))
 					{
 						return cage;
@@ -41,40 +40,58 @@ namespace ZzZomboRW
 			}
 			return null;
 		}
+		public static bool IsCaptiveOf(this Pawn pawn, Faction captors)
+		{
+			var cage1 = pawn.PositionHeld.CageHere(pawn.MapHeld);
+			if(cage1 is null)
+			{
+				return false;
+			}
+			var cage2 = pawn.FindCage(captors ?? cage1.Faction, false);
+			return cage1 == cage2 || cage1.Faction == cage2?.Faction;
+		}
+		public static Building_Cage CageHere(this IntVec3 cell, Map map) => cell.GetEdifice(map) as Building_Cage;
+		public static Building_Cage CurrentCage(this Pawn pawn, Map map = null) => pawn.PositionHeld.CageHere(map ?? pawn.MapHeld);
+		public static bool Reachable(IntVec3 start, LocalTargetInfo dest, PathEndMode peMode,
+			TraverseParms traverseParams)
+		{
+			var pawn = traverseParams.pawn;
+			if(pawn is null || !pawn.IsCaptiveOf(null))
+			{
+				return false;
+			}
+			if((peMode == PathEndMode.Touch || peMode == PathEndMode.ClosestTouch) && TouchPathEndModeUtility.
+				IsAdjacentOrInsideAndAllowedToTouch(start, dest, pawn.Map))
+			{
+				return true;
+			}
+			else if(dest.Cell.IsInside(pawn.CurrentCage()))
+			{
+				return true;
+			}
+			return false;
+		}
+	}
+	public class MapComponent_Cage: MapComponent
+	{
+		public List<Building_Cage> cages = new List<Building_Cage>(0);
+		public MapComponent_Cage(Map map) : base(map) { }
 	}
 	public class Building_Cage: Building
 	{
 		public CompAssignableToPawn_Cage CageComp => this.GetComp<CompAssignableToPawn_Cage>();
-		private bool initialized = false;
+		virtual public IntVec3 EntranceCell => new IntVec3(this.InteractionCell.ToVector3()).ClampInsideRect(this.OccupiedRect());
 		public bool forPrisoners = true;
 		public ushort pathCost = 8000;
-		//TODO: patch `GenConstruct.TerrainCanSupport()` to disallow changing floor under cages.
+		public bool isBlocking = false;
 		public override void SpawnSetup(Map map, bool respawningAfterLoad)
 		{
 			base.SpawnSetup(map, respawningAfterLoad);
 			map.GetComponent<MapComponent_Cage>()?.cages.AddDistinct(this);
-			if(!this.initialized)
-			{
-				foreach(var c in this.OccupiedRect())
-				{
-					this.Map.terrainGrid.SetTerrain(c, this.def.building.naturalTerrain ?? TerrainDefOf.WoodPlankFloor);
-				}
-			}
 		}
 		public override void DeSpawn(DestroyMode mode = DestroyMode.Vanish)
 		{
-			this.Map.GetComponent<MapComponent_Cage>()?.cages?.Remove(this);
-			if(mode is DestroyMode.Deconstruct)
-			{
-				foreach(var c in this.OccupiedRect())
-				{
-					if(this.Map.terrainGrid.topGrid[this.Map.cellIndices.CellToIndex(c)] == this.def.building.naturalTerrain)
-					{
-						this.Map.terrainGrid.RemoveTopLayer(c, true);
-					}
-				}
-			}
-			this.initialized = false;
+			this.Map.GetComponent<MapComponent_Cage>()?.cages.Remove(this);
 			base.DeSpawn(mode);
 		}
 		public override ushort PathFindCostFor(Pawn p) => this.pathCost;
@@ -86,8 +103,8 @@ namespace ZzZomboRW
 			}
 			var command_Toggle = new Command_Toggle
 			{
-				defaultLabel = "CommandBedSetForPrisonersLabel".Translate(),
-				defaultDesc = "CommandBedSetForPrisonersDesc".Translate(),
+				defaultLabel = "ZzZomboRW_AnimalCage_AssignToCageLabel".Translate(),
+				defaultDesc = "ZzZomboRW_AnimalCage_AssignToCageDesc".Translate(),
 				icon = ContentFinder<Texture2D>.Get("UI/Commands/ForPrisoners", true),
 				isActive = () => this.forPrisoners,
 				toggleAction = delegate ()
@@ -121,40 +138,11 @@ namespace ZzZomboRW
 		public override void ExposeData()
 		{
 			base.ExposeData();
-			Scribe_Values.Look(ref this.initialized, "initialized", true);
 			Scribe_Values.Look(ref this.forPrisoners, "forPrisoners", true);
 		}
 	}
 	public class CompAssignableToPawn_Cage: CompAssignableToPawn
 	{
-		public static bool HasFreeCagesFor(Pawn pawn) => pawn?.MapHeld?.GetComponent<MapComponent_Cage>()?.
-			HasFreeCagesFor(pawn) is true;
-		public static Building_Cage FindCageFor(Pawn pawn, bool onlyIfInside = true) => pawn?.MapHeld?.
-			GetComponent<MapComponent_Cage>()?.FindCageFor(pawn, onlyIfInside);
-		public static bool Reachable(IntVec3 start, LocalTargetInfo dest, PathEndMode peMode,
-			TraverseParms traverseParams)
-		{
-			var pawn = traverseParams.pawn;
-			if(pawn is null)
-			{
-				return false;
-			}
-			var cage = CompAssignableToPawn_Cage.FindCageFor(pawn);
-			if(cage is null)
-			{
-				return true;
-			}
-			if((peMode == PathEndMode.Touch || peMode == PathEndMode.ClosestTouch) && TouchPathEndModeUtility.
-				IsAdjacentOrInsideAndAllowedToTouch(start, dest, pawn.Map))
-			{
-				return true;
-			}
-			else if(dest.Cell.IsInside(cage))
-			{
-				return true;
-			}
-			return false;
-		}
 
 		public override IEnumerable<Pawn> AssigningCandidates
 		{
@@ -211,14 +199,15 @@ namespace ZzZomboRW
 			var result = false;
 			if(t is Pawn target)
 			{
-				var cage = CompAssignableToPawn_Cage.FindCageFor(target);
+				var cage = target.FindCage(pawn.Faction);
 				if(cage != null)
 				{
 					result = target.Downed && target.CurJobDef != JobDefOf.LayDown;
 				}
-				else if(CompAssignableToPawn_Cage.HasFreeCagesFor(target))
+				else if(target.HasAssignedCagesIn(pawn.Faction))
 				{
-					result = target.Downed || target.IsPrisonerOfColony;
+					result = target.Downed || target.guest?.HostFaction == pawn.Faction || target.RaceProps.Animal &&
+						target.Faction == cage.Faction;
 				}
 			}
 			return result && pawn.CanReserve(t, ignoreOtherReservations: forced);
@@ -226,16 +215,15 @@ namespace ZzZomboRW
 
 		public override Job JobOnThing(Pawn pawn, Thing t, bool forced = false)
 		{
-			if(t is Pawn victim)
+			if(t is Pawn target)
 			{
 				//Log.Message($"[WorkGiver_RescueToCage.JobOnThing] {pawn}, {t}, {CompAssignableToPawn_Cage.FindCageFor(victim)}, {CompAssignableToPawn_Cage.FindCageFor(victim, false)}.");
-				var cage = CompAssignableToPawn_Cage.FindCageFor(victim, true) ??
-					CompAssignableToPawn_Cage.FindCageFor(victim, false);
-				if(cage is null || cage.Map != victim.Map)
+				var cage = target.FindCage(pawn.Faction, true) ?? target.FindCage(pawn.Faction, false);
+				if(cage is null || cage.Map != target.Map)
 				{
 					return null;
 				}
-				var job = JobMaker.MakeJob(DefDatabase<JobDef>.GetNamed("ZzZomboRW_AnimalCage_Capture"), victim, cage);
+				var job = JobMaker.MakeJob(DefDatabase<JobDef>.GetNamed("ZzZomboRW_AnimalCage_Capture"), target, cage);
 				job.count = 1;
 				return job;
 			}
@@ -351,7 +339,7 @@ namespace ZzZomboRW
 	{
 		public override IEnumerable<Thing> PotentialWorkThingsGlobal(Pawn pawn)
 		{
-			return pawn.Map.mapPawns.AllPawns.FindAll(target => CompAssignableToPawn_Cage.FindCageFor(target) != null);
+			return pawn.Map.mapPawns.AllPawns.FindAll(target => target.FindCage(pawn.Faction) != null);
 		}
 		public override bool ShouldSkip(Pawn pawn, bool forced = false)
 		{
@@ -359,7 +347,7 @@ namespace ZzZomboRW
 		}
 		public override Job JobOnThing(Pawn pawn, Thing t, bool forced = false)
 		{
-			if(pawn is null || !(t is Pawn target) || CompAssignableToPawn_Cage.FindCageFor(target) is null ||
+			if(pawn is null || !(t is Pawn target) || target.FindCage(pawn.Faction) is null ||
 				target.IsFormingCaravan() || t.Spawned && t.Map.designationManager.DesignationOn(t, DesignationDefOf.Slaughter)
 				!= null)
 			{
@@ -383,7 +371,7 @@ namespace ZzZomboRW
 				{
 					return null;
 				}
-				if(this.FoodAvailableInCageTo(target))
+				if(this.FoodAvailableInCageTo(pawn, target))
 				{
 					return null;
 				}
@@ -399,9 +387,8 @@ namespace ZzZomboRW
 			job.targetC = RCellFinder.SpotToChewStandingNear(target, thing);
 			return job;
 		}
-		private bool FoodAvailableInCageTo(Pawn target)
+		private bool FoodAvailableInCageTo(Pawn pawn, Pawn target)
 		{
-			//Log.Message("[FoodAvailableInCageTo] check #1.");
 			var mi = typeof(WorkGiver_Warden_DeliverFood).GetMethod("NutritionAvailableForFrom",
 				System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic);
 			if(target.carryTracker?.CarriedThing != null && (float)mi.Invoke(null, new object[] {
@@ -411,27 +398,24 @@ namespace ZzZomboRW
 			}
 			var wantedNutrition = 0f;
 			var availableNutrition = 0f;
-			var cage = CompAssignableToPawn_Cage.FindCageFor(target);
-			//Log.Message($"[FoodAvailableInCageTo] check #2, {cage}.");
+			var cage = target.FindCage(pawn.Faction);
 			foreach(var c in cage.OccupiedRect())
 			{
 				foreach(var thing in c.GetThingList(cage.Map))
 				{
-					if(thing is Pawn pawn)
+					if(thing is Pawn _pawn)
 					{
-						//Log.Message($"[FoodAvailableInCageTo] check #3.");
-						if(CompAssignableToPawn_Cage.FindCageFor(pawn) == cage && pawn.needs?.food != null &&
-							pawn.needs.food.CurLevelPercentage < pawn.needs.food.PercentageThreshHungry + 0.02f &&
-							(pawn.carryTracker.CarriedThing is null || !pawn.WillEat(pawn.carryTracker.CarriedThing, null, true)))
+						if(_pawn.FindCage(pawn.Faction) == cage && _pawn.needs?.food != null &&
+							_pawn.needs.food.CurLevelPercentage < _pawn.needs.food.PercentageThreshHungry + 0.02f &&
+							(_pawn.carryTracker.CarriedThing is null || !_pawn.WillEat(_pawn.carryTracker.CarriedThing, null, true)))
 						{
-							wantedNutrition += pawn.needs.food.NutritionWanted;
+							wantedNutrition += _pawn.needs.food.NutritionWanted;
 						}
 					}
 					else if(ThingRequestGroup.FoodSourceNotPlantOrTree.Includes(thing.def) &&
 						(!thing.def.IsIngestible || thing.def.ingestible.preferability >
 							FoodPreferability.DesperateOnlyForHumanlikes))
 					{
-						//Log.Message($"[FoodAvailableInCageTo] check #4, {target}, {thing}.");
 						availableNutrition += (float)mi.Invoke(null, new object[] { target, thing });
 					}
 				}
@@ -479,7 +463,7 @@ namespace ZzZomboRW
 			toil2.AddFailCondition(delegate
 			{
 				var pawn = (Pawn)toil2.actor.jobs.curJob.targetB.Thing;
-				return CompAssignableToPawn_Cage.FindCageFor(pawn) is null || pawn.guest?.CanBeBroughtFood is false;
+				return pawn.FindCage(this.pawn.Faction) is null || pawn.guest?.CanBeBroughtFood is false;
 			});
 			yield return toil2;
 			var toil = new Toil();
@@ -510,11 +494,11 @@ namespace ZzZomboRW
 		{
 			try
 			{
-				var cage = CompAssignableToPawn_Cage.FindCageFor(pawn);
-				var success = cage != null && pawn.Position.GetEdifice(pawn.Map) is Building_Cage;
+				var cage = pawn.IsCaptiveOf(null) ? pawn.CurrentCage() : null;
+				var success = cage != null;
 				if(success != this.invert)
 				{
-					var area = pawn.mindState.duty.focus.Thing.OccupiedRect();
+					var area = cage.OccupiedRect();
 					pawn.mindState.maxDistToSquadFlag = Math.Max(area.Width / 2, area.Height / 2);
 					return base.TryIssueJobPackage(pawn, jobParams);
 				}
