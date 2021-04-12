@@ -106,6 +106,45 @@
 			</li>
 		</comps>
 	</ThingDef>
+	<ThingDef ParentName="ZzZomboRW_AnimalCage_Cage_Base">
+		<defName>ZzZomboRW_AnimalCage_Cage_FiveByFive</defName>
+		<label>giant animal cage</label>
+		<description>A cage of extradionary size to keep animals in. Fits just about every animal on the rim. Animals inside are peaceful and will be cared for by colonists even if they are wild. Can hold 2 creatures.</description>
+		<graphicData>
+			<texPath>ZzZombo/Animal_Cages/Medium_Cage</texPath>
+			<graphicClass>Graphic_Multi</graphicClass>
+			<damageData>
+				<rect>(-3,-3,3,3)</rect>
+				<cornerTL>Damage/Corner</cornerTL>
+				<cornerTR>Damage/Corner</cornerTR>
+				<cornerBL>Damage/Corner</cornerBL>
+				<cornerBR>Damage/Corner</cornerBR>
+			</damageData>
+			<drawSize>(10,10)</drawSize>
+		</graphicData>
+		<size>(5,5)</size>
+		<building>
+			<bed_maxBodySize>7</bed_maxBodySize>
+		</building>
+		<interactionCellOffset>(0,0,-3)</interactionCellOffset>
+		<stuffCategories>
+			<li>Metallic</li>
+		</stuffCategories>
+		<costStuffCount>625</costStuffCount>
+		<statBases>
+			<MaxHitPoints>450</MaxHitPoints>
+			<Flammability>0.3</Flammability>
+			<WorkToBuild>1300</WorkToBuild>
+			<Mass>333</Mass>
+		</statBases>
+		<comps>
+			<li Class="CompProperties_AssignableToPawn">
+				<compClass>ZzZomboRW.CompAssignableToPawn_Cage</compClass>
+				<drawAssignmentOverlay>false</drawAssignmentOverlay>
+				<maxAssignedPawnsCount>2</maxAssignedPawnsCount>
+			</li>
+		</comps>
+	</ThingDef>
 	<!-- <ThingDef ParentName="ZzZomboRW_AnimalCage_Cage_ThreeByThree">
 		<defName>ZzZomboRW_AnimalCage_Cage_ThreeByThree_Human</defName>
 		<label>medium human cage</label>

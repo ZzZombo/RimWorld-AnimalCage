@@ -5,7 +5,7 @@ are generally peaceful, and will be looked after by your handlers. To capture an
 first. Then any handler can bring one into a cage it's assigned to; you can select a cage and assign any animal valid for the cage. By default cages allow any animal outside your faction, but if need be, you can toggle it to instead accept your own animals.
 
 # Features
-* Currently has cages of a 2×3 and 3×3 size capable of holding a single animal/3 animals respectively of most sizes (up to and including the size of a human). Should fit most vanilla animals.
+* Currently has cages of a 2×3, 3×3 and 5x5 sizes capable of holding a single animal/three/two animals respectively of most sizes (up to and including the size of a human). Should fit most vanilla animals.
 * Handlers automatically capture downed marked animals. Colonists take care of animals inside.
 * Captive animals roam inside the cage w/o getting out, although there are no physical barriers involved in construction of the cages as far as RimWorld is concerned; it's a single building.
 * Access inside/outside cages is possible only via the entrance cell. But the cage doesn't prevent interaction through the bars up to one cell in either direction. In particular, hungry creatures can snatch food lying close enough outside.
