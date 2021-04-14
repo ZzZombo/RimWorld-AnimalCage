@@ -141,41 +141,6 @@ namespace ZzZomboRW
 			Scribe_Values.Look(ref this.forPrisoners, "forPrisoners", true);
 		}
 	}
-	public class CompAssignableToPawn_Cage: CompAssignableToPawn
-	{
-
-		public override IEnumerable<Pawn> AssigningCandidates
-		{
-			get
-			{
-				var cage = this.parent as Building_Cage;
-				return !(cage?.Spawned is true)
-					? Enumerable.Empty<Pawn>()
-					: this.parent.Map.mapPawns.AllPawnsSpawned.FindAll(pawn =>
-						pawn.BodySize <= this.parent.def.building.bed_maxBodySize &&
-						pawn.AnimalOrWildMan() != this.parent.def.building.bed_humanlike &&
-						pawn.Faction == cage.Faction != cage.forPrisoners);
-			}
-		}
-		protected override void SortAssignedPawns()
-		{
-			//Do nothing, first in-first out.
-		}
-		public override void TryAssignPawn(Pawn pawn)
-		{
-			if(!this.HasFreeSlot)
-			{
-				this.TryUnassignPawn(this.AssignedPawnsForReading[0]);
-			}
-			foreach(var cage in pawn?.MapHeld?.CagesOnMap() ?? Enumerable.Empty<Building_Cage>())
-			{
-				cage.CageComp.TryUnassignPawn(pawn);
-			}
-			base.TryAssignPawn(pawn);
-		}
-		protected override string GetAssignmentGizmoLabel() => "ZzZomboRW_AnimalCage_AssignToCageLabel".Translate();
-		protected override string GetAssignmentGizmoDesc() => "ZzZomboRW_AnimalCage_AssignToCageDesc".Translate();
-	}
 	public class WorkGiver_RescueToCage: WorkGiver_RescueDowned
 	{
 		public override Danger MaxPathDanger(Pawn pawn)
@@ -237,7 +202,7 @@ namespace ZzZomboRW
 		{
 			return this.pawn.Reserve(this.Takee, this.job, 1, -1, null, errorOnFailed);
 		}
-		protected override IEnumerable<Toil> MakeNewToils()
+		public override IEnumerable<Toil> MakeNewToils()
 		{
 			this.FailOnDestroyedOrNull(TargetIndex.A).
 				FailOnDestroyedOrNull(TargetIndex.B).
@@ -372,7 +337,7 @@ namespace ZzZomboRW
 				{
 					return null;
 				}
-				if(this.FoodAvailableInCageTo(pawn, target))
+				if(FoodAvailableInCageTo(pawn, target))
 				{
 					return null;
 				}
@@ -388,12 +353,9 @@ namespace ZzZomboRW
 			job.targetC = RCellFinder.SpotToChewStandingNear(target, thing);
 			return job;
 		}
-		private bool FoodAvailableInCageTo(Pawn pawn, Pawn target)
+		private static bool FoodAvailableInCageTo(Pawn pawn, Pawn target)
 		{
-			var mi = typeof(WorkGiver_Warden_DeliverFood).GetMethod("NutritionAvailableForFrom",
-				System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic);
-			if(target.carryTracker?.CarriedThing != null && (float)mi.Invoke(null, new object[] {
-				target, target.carryTracker.CarriedThing }) > 0f)
+			if(target.carryTracker?.CarriedThing != null && NutritionAvailableForFrom(target, target.carryTracker.CarriedThing) > 0f)
 			{
 				return true;
 			}
@@ -417,7 +379,7 @@ namespace ZzZomboRW
 						(!thing.def.IsIngestible || thing.def.ingestible.preferability >
 							FoodPreferability.DesperateOnlyForHumanlikes))
 					{
-						availableNutrition += (float)mi.Invoke(null, new object[] { target, thing });
+						availableNutrition += NutritionAvailableForFrom(target, thing);
 					}
 				}
 			}
@@ -426,15 +388,7 @@ namespace ZzZomboRW
 	}
 	public class JobDriver_DeliverFood: JobDriver_FoodDeliver
 	{
-		private bool usingNutrientPasteDispenser;
-		private bool eatingFromInventory;
-		public override void Notify_Starting()
-		{
-			base.Notify_Starting();
-			this.usingNutrientPasteDispenser = this.TargetThingA is Building_NutrientPasteDispenser;
-			this.eatingFromInventory = this.pawn.inventory != null && this.pawn.inventory.Contains(this.TargetThingA);
-		}
-		protected override IEnumerable<Toil> MakeNewToils()
+		public override IEnumerable<Toil> MakeNewToils()
 		{
 			this.FailOnDespawnedOrNull(TargetIndex.B);
 			if(this.eatingFromInventory)
