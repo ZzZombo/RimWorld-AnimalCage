@@ -18,6 +18,8 @@
 		<PackageProjectUrl>https://github.com/ZzZombo/RimWorld-AnimalCage</PackageProjectUrl>
 		<RepositoryUrl>https://github.com/ZzZombo/RimWorld-AnimalCage.git</RepositoryUrl>
 		<RepositoryType>Git</RepositoryType>
+		<Authors>ZzZombo</Authors>
+		<PackageLicenseFile>LICENSE</PackageLicenseFile>
 		<PackageId>Animal Cage</PackageId>
 	</PropertyGroup>
 	<PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Release|AnyCPU' ">
@@ -27,6 +29,12 @@
 		<DebugSymbols>false</DebugSymbols>
 	</PropertyGroup>
 	<ItemGroup>
+		<None Include="..\LICENSE">
+			<Pack>True</Pack>
+			<PackagePath></PackagePath>
+		</None>
+	</ItemGroup>
+	<ItemGroup>
 		<PackageReference Include="Krafs.Rimworld.Ref" Version="1.2.2900" GeneratePathProperty="true" />
 		<PackageReference Include="Lib.Harmony" Version="2.0.4" ExcludeAssets="runtime" />
 		<!-- <PackageReference Include="UnlimitedHugs.Rimworld.HugsLib" Version="8.0.0" ExcludeAssets="runtime" /> -->
@@ -35,7 +43,7 @@
 	</ItemGroup>
 	<ItemGroup>
 		<Reference Include="ZzZomboRW">
-			<HintPath>..\..\ZzZomboRW\v1.x\Assemblies\ZzZomboRW.dll</HintPath>
+			<HintPath>..\..\ZzZomboRW\v1.x\Assemblies\Framework.dll</HintPath>
 			<Private>false</Private>
 		</Reference>
 	</ItemGroup>
