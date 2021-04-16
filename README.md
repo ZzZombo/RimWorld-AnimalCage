@@ -1,5 +1,4 @@
 # Description
-
 This mod adds cages to hold wild (or your own) animals captive inside them. The animals can't escape it,
 are generally peaceful, and will be looked after by your handlers. To capture an animal it has to be incapacitated
 first. Then any handler can bring one into a cage it's assigned to; you can select a cage and assign any animal valid for the cage. By default cages allow any animal outside your faction, but if need be, you can toggle it to instead accept your own animals.
